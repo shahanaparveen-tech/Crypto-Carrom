@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+coverage
+.turbo
+.vite
+**/prisma/migrations
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+*.gitkeep

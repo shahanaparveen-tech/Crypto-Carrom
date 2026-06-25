@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #2a0a09;
+  color: #f5efe6;
+}
+
+@layer components {
+  /* Reusable felt-board surface */
+  .surface-wood {
+    background-image: linear-gradient(160deg, #c8924a 0%, #9c5a25 55%, #6e3f18 100%);
+  }
+  .text-shadow-deep {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* Slim scrollbar for dark UI */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(245, 185, 66, 0.4);
+  border-radius: 8px;
+}

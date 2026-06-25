@@ -1,0 +1,625 @@
+// ============================================================================
+//  Crypto Carrom — Prisma schema
+//  PostgreSQL. Phase 1: core game + virtual coins. Crypto tables reserved.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================== ENUMS =======================================
+
+enum Role {
+  PLAYER
+  MODERATOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+}
+
+enum GameMode {
+  CLASSIC
+  FREESTYLE
+}
+
+enum RoomVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum RoomStatus {
+  WAITING
+  READY
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+}
+
+enum MatchStatus {
+  PENDING
+  ONGOING
+  FINISHED
+  ABANDONED
+}
+
+enum MatchPlayerResult {
+  WIN
+  LOSS
+  DRAW
+  ABANDONED
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum TransactionReason {
+  SIGNUP_BONUS
+  DAILY_BONUS
+  MATCH_ENTRY
+  MATCH_WINNING
+  TOURNAMENT_ENTRY
+  TOURNAMENT_PRIZE
+  REFUND
+  PURCHASE
+  ADMIN_ADJUSTMENT
+}
+
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+}
+
+enum LeaderboardPeriod {
+  GLOBAL
+  WEEKLY
+  MONTHLY
+}
+
+enum TournamentStatus {
+  DRAFT
+  REGISTRATION
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  SYSTEM
+  FRIEND_REQUEST
+  MATCH_INVITE
+  MATCH_RESULT
+  WALLET
+  TOURNAMENT
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum ChatRoomType {
+  GLOBAL
+  ROOM
+}
+
+enum VerificationTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+enum AuthProvider {
+  GUEST
+  GOOGLE
+  FACEBOOK
+  EMAIL
+}
+
+// ---- Crypto enums (Phase 5 — reserved) ----
+
+enum CryptoWalletProvider {
+  METAMASK
+  WALLETCONNECT
+  PHANTOM
+  CUSTODIAL
+}
+
+enum TokenTransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum StakingStatus {
+  ACTIVE
+  UNSTAKING
+  COMPLETED
+  CANCELLED
+}
+
+// ============================== CORE ========================================
+
+model User {
+  id                String       @id @default(cuid())
+  email             String?      @unique // null for guests
+  username          String       @unique // e.g. Guest_48217
+  passwordHash      String? // null for guest / OAuth accounts
+  provider          AuthProvider @default(EMAIL)
+  isGuest           Boolean      @default(false)
+  firebaseUid       String?      @unique // reserved for future Google/Facebook linking
+  role              Role         @default(PLAYER)
+  status            UserStatus   @default(ACTIVE)
+  isEmailVerified   Boolean      @default(false)
+  emailVerifiedAt   DateTime?
+  lastLoginAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  profile           Profile?
+  wallet            Wallet?
+  cryptoWallet      CryptoWallet?
+  settings          UserSettings?
+
+  sessions          Session[]
+  verificationTokens VerificationToken[]
+
+  hostedRooms       GameRoom[]         @relation("RoomHost")
+  matchPlayers      MatchPlayer[]
+  gameHistory       GameHistory[]
+  leaderboards      Leaderboard[]
+  tournamentPlayers TournamentPlayer[]
+  notifications     Notification[]
+  chatMessages      ChatMessage[]
+  adminLogs         AdminLog[]         @relation("AdminActor")
+
+  friendsRequested  Friend[]           @relation("FriendRequester")
+  friendsReceived   Friend[]           @relation("FriendAddressee")
+
+  @@index([status])
+  @@map("users")
+}
+
+model Profile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  displayName  String?
+  avatarUrl    String?
+  country      String?
+  bio          String?
+  level        Int      @default(1)
+  xp           Int      @default(0)
+  gamesPlayed  Int      @default(0)
+  gamesWon     Int      @default(0)
+  gamesLost    Int      @default(0)
+  winStreak    Int      @default(0)
+  bestStreak   Int      @default(0)
+  rating       Int      @default(1000) // matchmaking skill rating (Elo-like)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([rating])
+  @@map("profiles")
+}
+
+model Wallet {
+  id           String       @id @default(cuid())
+  userId       String       @unique
+  balance      BigInt       @default(0) // virtual coins, integer units
+  gems         BigInt       @default(0) // premium currency
+  currency     String       @default("COIN")
+  status       WalletStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String            @id @default(cuid())
+  walletId      String
+  type          TransactionType
+  reason        TransactionReason
+  amount        BigInt
+  balanceBefore BigInt
+  balanceAfter  BigInt
+  referenceId   String? // e.g. matchId / tournamentId
+  metadata      Json?
+  createdAt     DateTime          @default(now())
+
+  wallet        Wallet            @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, createdAt])
+  @@index([referenceId])
+  @@map("wallet_transactions")
+}
+
+model UserSettings {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  soundEnabled        Boolean  @default(true)
+  musicEnabled        Boolean  @default(true)
+  vibrationEnabled    Boolean  @default(true)
+  notificationsEnabled Boolean @default(true)
+  language            String   @default("en")
+  theme               String   @default("system")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ---- Auth sessions & tokens (Postgres-backed; replaces Redis sessions) ----
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  id         String                @id @default(cuid())
+  userId     String
+  tokenHash  String                @unique
+  type       VerificationTokenType
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime              @default(now())
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("verification_tokens")
+}
+
+// ============================== GAME ========================================
+
+model GameRoom {
+  id          String         @id @default(cuid())
+  code        String         @unique // shareable join code
+  hostId      String
+  mode        GameMode       @default(CLASSIC)
+  visibility  RoomVisibility @default(PUBLIC)
+  status      RoomStatus     @default(WAITING)
+  maxPlayers  Int            @default(2)
+  entryFee    BigInt         @default(0)
+  prizePool   BigInt         @default(0)
+  passwordHash String?       // for private rooms
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  host        User           @relation("RoomHost", fields: [hostId], references: [id])
+  matches     Match[]
+  chatRoom    ChatRoom?
+
+  @@index([status, visibility])
+  @@index([mode])
+  @@map("game_rooms")
+}
+
+model Match {
+  id          String        @id @default(cuid())
+  roomId      String
+  mode        GameMode      @default(CLASSIC)
+  status      MatchStatus   @default(PENDING)
+  winnerId    String?
+  entryFee    BigInt        @default(0)
+  prizePool   BigInt        @default(0)
+  turnCount   Int           @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  state       Json?         // authoritative snapshot for reconnection
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  room        GameRoom      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  players     MatchPlayer[]
+  history     GameHistory[]
+
+  @@index([roomId])
+  @@index([status])
+  @@map("matches")
+}
+
+model MatchPlayer {
+  id           String             @id @default(cuid())
+  matchId      String
+  userId       String
+  seat         Int
+  result       MatchPlayerResult?
+  score        Int                @default(0)
+  coinsPocketed Int               @default(0)
+  ratingBefore Int?
+  ratingAfter  Int?
+  isReady      Boolean            @default(false)
+  isConnected  Boolean            @default(true)
+  joinedAt     DateTime           @default(now())
+
+  match        Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user         User               @relation(fields: [userId], references: [id])
+
+  @@unique([matchId, userId])
+  @@unique([matchId, seat])
+  @@index([userId])
+  @@map("match_players")
+}
+
+model GameHistory {
+  id         String   @id @default(cuid())
+  matchId    String
+  userId     String
+  result     MatchPlayerResult
+  score      Int      @default(0)
+  ratingDelta Int     @default(0)
+  coinsDelta BigInt   @default(0)
+  durationSec Int     @default(0)
+  createdAt  DateTime @default(now())
+
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("game_history")
+}
+
+// =========================== LEADERBOARDS ===================================
+
+model Leaderboard {
+  id         String            @id @default(cuid())
+  userId     String
+  period     LeaderboardPeriod
+  periodKey  String            // e.g. "2026-W25", "2026-06", "GLOBAL"
+  rating     Int               @default(1000)
+  wins       Int               @default(0)
+  losses     Int               @default(0)
+  rank       Int?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, period, periodKey])
+  @@index([period, periodKey, rating])
+  @@map("leaderboards")
+}
+
+// ============================ TOURNAMENTS ===================================
+
+model Tournament {
+  id          String           @id @default(cuid())
+  name        String
+  mode        GameMode         @default(CLASSIC)
+  status      TournamentStatus @default(DRAFT)
+  entryFee    BigInt           @default(0)
+  prizePool   BigInt           @default(0)
+  maxPlayers  Int              @default(8)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  players     TournamentPlayer[]
+
+  @@index([status])
+  @@map("tournaments")
+}
+
+model TournamentPlayer {
+  id           String     @id @default(cuid())
+  tournamentId String
+  userId       String
+  seed         Int?
+  placement    Int?
+  eliminated   Boolean    @default(false)
+  joinedAt     DateTime   @default(now())
+
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_players")
+}
+
+// ============================= SOCIAL =======================================
+
+model Friend {
+  id          String       @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status      FriendStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  requester   User         @relation("FriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User         @relation("FriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@map("friends")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType @default(SYSTEM)
+  title     String
+  body      String?
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+// ============================== CHAT ========================================
+
+model ChatRoom {
+  id        String       @id @default(cuid())
+  type      ChatRoomType @default(GLOBAL)
+  roomId    String?      @unique // links to a GameRoom for room-scoped chat
+  createdAt DateTime     @default(now())
+
+  gameRoom  GameRoom?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+
+  @@index([type])
+  @@map("chat_rooms")
+}
+
+model ChatMessage {
+  id         String   @id @default(cuid())
+  chatRoomId String
+  senderId   String
+  content    String
+  createdAt  DateTime @default(now())
+
+  chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender     User     @relation(fields: [senderId], references: [id])
+
+  @@index([chatRoomId, createdAt])
+  @@map("chat_messages")
+}
+
+// ============================== ADMIN =======================================
+
+model AdminLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  actor      User     @relation("AdminActor", fields: [actorId], references: [id])
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+  @@map("admin_logs")
+}
+
+// ======================= CRYPTO (PHASE 5 — RESERVED) ========================
+// These models are intentionally inert until crypto integration. They compile
+// and migrate, but no application code references them in Phase 1.
+
+model CryptoWallet {
+  id            String               @id @default(cuid())
+  userId        String               @unique
+  address       String               @unique
+  provider      CryptoWalletProvider @default(METAMASK)
+  chainId       Int?
+  isPrimary     Boolean              @default(true)
+  verifiedAt    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenTxns     TokenTransaction[]
+  stakes        Staking[]
+  nftAssets     NftAsset[]
+
+  @@map("crypto_wallets")
+}
+
+model TokenTransaction {
+  id             String                 @id @default(cuid())
+  cryptoWalletId String
+  txHash         String?                @unique
+  tokenSymbol    String
+  amount         Decimal                @db.Decimal(38, 18)
+  direction      TransactionType
+  status         TokenTransactionStatus @default(PENDING)
+  blockNumber    BigInt?
+  metadata       Json?
+  createdAt      DateTime               @default(now())
+  confirmedAt    DateTime?
+
+  cryptoWallet   CryptoWallet           @relation(fields: [cryptoWalletId], references: [id], onDelete: Cascade)
+
+  @@index([cryptoWalletId, createdAt])
+  @@map("token_transactions")
+}
+
+model Staking {
+  id             String        @id @default(cuid())
+  cryptoWalletId String
+  tokenSymbol    String
+  amount         Decimal       @db.Decimal(38, 18)
+  apr            Decimal       @db.Decimal(6, 4)
+  status         StakingStatus @default(ACTIVE)
+  startedAt      DateTime      @default(now())
+  endsAt         DateTime?
+  rewardClaimed  Decimal       @default(0) @db.Decimal(38, 18)
+
+  cryptoWallet   CryptoWallet  @relation(fields: [cryptoWalletId], references: [id], onDelete: Cascade)
+
+  @@index([cryptoWalletId, status])
+  @@map("staking")
+}
+
+model NftAsset {
+  id             String       @id @default(cuid())
+  cryptoWalletId String
+  contractAddress String
+  tokenId        String
+  name           String?
+  imageUrl       String?
+  metadata       Json?
+  acquiredAt     DateTime     @default(now())
+
+  cryptoWallet   CryptoWallet @relation(fields: [cryptoWalletId], references: [id], onDelete: Cascade)
+
+  @@unique([contractAddress, tokenId])
+  @@index([cryptoWalletId])
+  @@map("nft_assets")
+}
+
+model BlockchainGame {
+  id          String   @id @default(cuid())
+  matchId     String?  @unique
+  chainId     Int
+  contractAddress String
+  txHash      String?  @unique
+  stakeAmount Decimal  @db.Decimal(38, 18)
+  settled     Boolean  @default(false)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  settledAt   DateTime?
+
+  @@index([chainId])
+  @@map("blockchain_games")
+}
