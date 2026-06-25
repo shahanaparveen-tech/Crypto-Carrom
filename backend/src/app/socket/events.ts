@@ -28,6 +28,8 @@ export const SOCKET_EVENTS = {
   GAME_START: 'game:start',
   GAME_SHOT: 'game:shot',
   GAME_STATE: 'game:state',
+  GAME_PAUSED: 'game:paused',
+  GAME_RESUMED: 'game:resumed',
 
   // ---- Chat ----
   CHAT_MESSAGE: 'chat-message',

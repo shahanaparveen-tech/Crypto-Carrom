@@ -68,6 +68,7 @@ export const FriendsPage = (): JSX.Element => {
   const [search, setSearch] = useState('');
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [showJoin, setShowJoin] = useState(false);
+  const [roomSize, setRoomSize] = useState<2 | 4>(2);
 
   const friends = friendsQ.data?.friends ?? [];
   const suggestions = suggestionsQ.data?.suggestions ?? [];
@@ -317,9 +318,33 @@ export const FriendsPage = (): JSX.Element => {
               <div>
                 <h3 className="font-display text-lg font-bold text-felt">Private Room</h3>
                 <p className="mt-1 text-sm text-felt/60">
-                  Create a room and play with up to 4 friends.
+                  Create a room and invite a friend with the code.
                 </p>
               </div>
+
+              {/* Match size */}
+              <div className="grid grid-cols-2 gap-1 rounded-xl border border-gold/15 bg-maroon-dark/40 p-1">
+                {(
+                  [
+                    { size: 2, label: '1v1' },
+                    { size: 4, label: '2v2' },
+                  ] as const
+                ).map((o) => (
+                  <button
+                    key={o.size}
+                    onClick={() => setRoomSize(o.size)}
+                    className={cn(
+                      'rounded-lg py-1.5 text-sm font-bold transition',
+                      roomSize === o.size
+                        ? 'bg-gold-gradient text-maroon-dark shadow'
+                        : 'text-felt/60 hover:text-felt',
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+
               <div className="space-y-2 pt-1">
                 <ActionPill
                   tone="green"
@@ -327,12 +352,14 @@ export const FriendsPage = (): JSX.Element => {
                   disabled={createRoom.isPending}
                   onClick={() =>
                     createRoom.mutate(
-                      { maxPlayers: 4 },
+                      { maxPlayers: roomSize },
                       { onSuccess: (res) => setActiveRoom(res.room) },
                     )
                   }
                 >
-                  {createRoom.isPending ? 'Creating…' : 'Create Room'}
+                  {createRoom.isPending
+                    ? 'Creating…'
+                    : `Create ${roomSize === 2 ? '1v1' : '2v2'} Room`}
                 </ActionPill>
                 <ActionPill tone="gold" className="w-full" onClick={() => setShowJoin(true)}>
                   Join Room

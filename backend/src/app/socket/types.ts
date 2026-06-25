@@ -27,6 +27,8 @@ export interface ServerToClientEvents {
     events: GameEvent[];
     state: GameState;
   }) => void;
+  'game:paused': (payload: { roomId: string; userId: string; graceMs: number }) => void;
+  'game:resumed': (payload: { roomId: string; userId: string }) => void;
 }
 
 export interface ClientToServerEvents {

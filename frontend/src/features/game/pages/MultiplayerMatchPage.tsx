@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { LogOut, Coins } from 'lucide-react';
+import { LogOut, Coins, WifiOff } from 'lucide-react';
 
-import { Avatar } from '@shared/components';
+import { Avatar, Spinner } from '@shared/components';
 import { ROUTES } from '@app/config/routes.constants';
 import { NetGameCanvas } from '../components/NetGameCanvas';
 import { useNetMatch } from '../net/useNetMatch';
@@ -9,7 +9,7 @@ import { useNetMatch } from '../net/useNetMatch';
 export const MultiplayerMatchPage = (): JSX.Element => {
   const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
-  const { myId, state, lastShot, sendShot } = useNetMatch(roomId ?? null);
+  const { myId, state, lastShot, pausedUser, sendShot } = useNetMatch(roomId ?? null);
 
   const myTeam = state?.players[myId]?.teamId ?? 'A';
   const oppTeam = myTeam === 'A' ? 'B' : 'A';
@@ -70,8 +70,19 @@ export const MultiplayerMatchPage = (): JSX.Element => {
       </div>
 
       {/* Board */}
-      <div className="mt-3 w-full">
+      <div className="relative mt-3 w-full">
         <NetGameCanvas state={state} myId={myId} lastShot={lastShot} onLocalShot={sendShot} />
+
+        {pausedUser && state?.status === 'ACTIVE' && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-black/70 backdrop-blur-sm">
+            <WifiOff size={36} className="text-rose-300" />
+            <p className="font-display text-lg font-bold text-white">
+              {pausedUser === myId ? 'Reconnecting…' : 'Opponent disconnected'}
+            </p>
+            <p className="text-sm text-white/70">Waiting to reconnect…</p>
+            <Spinner className="h-6 w-6" />
+          </div>
+        )}
       </div>
 
       <button

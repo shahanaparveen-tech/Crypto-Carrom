@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Copy, Check, Play, LogOut, Users, Crown, CheckCircle2 } from 'lucide-react';
 
@@ -27,6 +27,11 @@ export const RoomModal = ({ room, onClose }: RoomModalProps): JSX.Element => {
   const { ready, started, sendReady } = useRoomMatch(current.id);
   const myId = user?.id ?? '';
   const myReady = !!ready[myId];
+
+  // When the match starts, every player is taken straight to the board.
+  useEffect(() => {
+    if (started) navigate(matchRoute(current.id));
+  }, [started, current.id, navigate]);
 
   const nameOf = (userId: string): string => {
     const m = members.find((x) => x.userId === userId);

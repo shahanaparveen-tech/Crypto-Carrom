@@ -1,7 +1,10 @@
 import { Clock, Play } from 'lucide-react';
 
 import { CoinBadge, GemBadge, SectionRibbon, ActionPill, Countdown } from '@shared/components';
+import { getApiErrorMessage } from '@shared/services/http';
+import { formatCoins } from '@shared/utils/format';
 import { useWalletBalance } from '@features/wallet/hooks/useWallet';
+import { useBuyChest } from '../hooks/useShop';
 import {
   SPECIAL_OFFERS,
   ROYAL_REWARDS,
@@ -23,9 +26,18 @@ const JUMP = [
 
 export const ShopPage = (): JSX.Element => {
   const { data: walletData } = useWalletBalance();
+  const buyChest = useBuyChest();
 
   const jump = (id: string): void => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openChest = (chestId: string): void => {
+    buyChest.mutate(chestId, {
+      onSuccess: (r) =>
+        window.alert(`🎉 You opened ${chestId} and won ${formatCoins(r.reward)} coins!`),
+      onError: (e) => window.alert(getApiErrorMessage(e, 'Not enough gems')),
+    });
   };
 
   return (
@@ -79,7 +91,7 @@ export const ShopPage = (): JSX.Element => {
         <SectionRibbon title="Premium Chests" tone="orange" />
         <div className="mb-8 mt-4 grid gap-4 sm:grid-cols-3">
           {PREMIUM_CHESTS.map((c) => (
-            <ChestCard key={c.id} chest={c} />
+            <ChestCard key={c.id} chest={c} onBuy={(chest) => openChest(chest.id)} />
           ))}
         </div>
       </div>

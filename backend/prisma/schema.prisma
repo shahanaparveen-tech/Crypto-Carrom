@@ -127,6 +127,23 @@ enum AuthProvider {
   EMAIL
 }
 
+enum ItemCategory {
+  STRIKER
+  PUCK
+  TRAIL
+  POCKET
+  POWER
+  AVATAR
+  FRAME
+}
+
+enum ItemRarity {
+  STANDARD
+  RARE
+  EPIC
+  LEGENDARY
+}
+
 // ---- Crypto enums (Phase 5 — reserved) ----
 
 enum CryptoWalletProvider {
@@ -171,6 +188,7 @@ model User {
   wallet            Wallet?
   cryptoWallet      CryptoWallet?
   settings          UserSettings?
+  inventory         InventoryItem[]
 
   sessions          Session[]
   verificationTokens VerificationToken[]
@@ -265,6 +283,39 @@ model UserSettings {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
+}
+
+// ---- Cosmetics: item catalog + per-user inventory ----
+
+model Item {
+  id        String       @id @default(cuid())
+  key       String       @unique // e.g. "striker:blaze"
+  name      String
+  category  ItemCategory
+  rarity    ItemRarity   @default(STANDARD)
+  isDefault Boolean      @default(false) // owned + equipped from the start
+  metadata  Json?
+  createdAt DateTime     @default(now())
+
+  inventory InventoryItem[]
+
+  @@index([category])
+  @@map("items")
+}
+
+model InventoryItem {
+  id         String   @id @default(cuid())
+  userId     String
+  itemId     String
+  equipped   Boolean  @default(false)
+  acquiredAt DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@index([userId])
+  @@map("inventory_items")
 }
 
 // ---- Auth sessions & tokens (Postgres-backed; replaces Redis sessions) ----

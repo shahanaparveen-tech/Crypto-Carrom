@@ -4,14 +4,8 @@ import { Info } from 'lucide-react';
 import { Card, CoinBadge, GemBadge } from '@shared/components';
 import { cn } from '@shared/utils/cn';
 import { useWalletBalance } from '@features/wallet/hooks/useWallet';
-import {
-  CATEGORIES,
-  ITEMS,
-  STRIKERS,
-  DEFAULT_EQUIPPED,
-  type Category,
-  type EquipItem,
-} from '../data/equipment';
+import { CATEGORIES, ITEMS, STRIKERS, type Category, type EquipItem } from '../data/equipment';
+import { useInventory, useEquipItem, itemKey, CATEGORY_ENUM } from '../hooks/useInventory';
 import { CollectionPower } from '../components/CollectionPower';
 import { EquipCard } from '../components/EquipCard';
 import { EquipArt } from '../components/EquipArt';
@@ -19,17 +13,27 @@ import { AttrBars } from '../components/AttrBars';
 
 export const EquipmentPage = (): JSX.Element => {
   const { data: walletData } = useWalletBalance();
+  const { data: inv } = useInventory();
+  const equipMutation = useEquipItem();
   const [category, setCategory] = useState<Category>('strikers');
-  const [equipped, setEquipped] = useState<Record<Category, string>>(DEFAULT_EQUIPPED);
+
+  const ownedKeys = useMemo(
+    () => new Set((inv?.items ?? []).filter((i) => i.owned).map((i) => i.key)),
+    [inv],
+  );
+  const equippedByCat = inv?.equipped ?? {};
+  const isOwned = (cat: Category, id: string): boolean => ownedKeys.has(itemKey(cat, id));
+  const isEquipped = (cat: Category, id: string): boolean =>
+    equippedByCat[CATEGORY_ENUM[cat] ?? ''] === itemKey(cat, id);
 
   const equip = (item: EquipItem): void => {
-    if (item.owned) setEquipped((prev) => ({ ...prev, [category]: item.id }));
+    if (isOwned(category, item.id)) equipMutation.mutate(itemKey(category, item.id));
   };
 
-  const equippedStriker = useMemo(
-    () => STRIKERS.find((s) => s.id === equipped.strikers) ?? STRIKERS[0]!,
-    [equipped.strikers],
-  );
+  const equippedStriker = useMemo(() => {
+    const id = (equippedByCat.STRIKER ?? 'striker:blaze').split(':')[1];
+    return STRIKERS.find((s) => s.id === id) ?? STRIKERS[0]!;
+  }, [equippedByCat.STRIKER]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -123,8 +127,8 @@ export const EquipmentPage = (): JSX.Element => {
         {ITEMS[category].map((item) => (
           <EquipCard
             key={item.id}
-            item={item}
-            equipped={equipped[category] === item.id}
+            item={{ ...item, owned: isOwned(category, item.id) }}
+            equipped={isEquipped(category, item.id)}
             onEquip={equip}
           />
         ))}

@@ -132,4 +132,57 @@ export const gameSession = {
     }
     return result;
   },
+
+  /** True if the user is a seated player in this room's active match. */
+  async isPlayer(roomId: string, userId: string): Promise<boolean> {
+    const state = await this.getState(roomId);
+    return !!state && state.status === 'ACTIVE' && !!state.players[userId];
+  },
+
+  /** Flags a player's socket connection on the active match. */
+  async setConnected(roomId: string, userId: string, connected: boolean): Promise<void> {
+    const room = await loadRoom(roomId);
+    const match = room?.matches[0];
+    if (!match) return;
+    await prisma.matchPlayer.updateMany({
+      where: { matchId: match.id, userId },
+      data: { isConnected: connected },
+    });
+  },
+
+  /** Ends the match in favour of the opponent team when a player abandons. */
+  async forfeit(roomId: string, leaverUserId: string): Promise<GameState | null> {
+    const state = await this.getState(roomId);
+    if (!state || state.status !== 'ACTIVE') return null;
+    const leaverTeam = state.players[leaverUserId]?.teamId;
+    if (!leaverTeam) return null;
+    const winnerTeam = leaverTeam === 'A' ? 'B' : 'A';
+
+    const finished: GameState = structuredClone(state);
+    finished.status = 'FINISHED';
+    finished.winnerTeam = winnerTeam;
+    finished.turn.phase = 'FINISHED';
+    sessions.set(roomId, finished);
+
+    await prisma.match.update({
+      where: { id: finished.matchId },
+      data: {
+        status: 'ABANDONED',
+        finishedAt: new Date(),
+        winnerId: finished.teams[winnerTeam].members[0] ?? null,
+        state: finished as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await prisma.gameRoom.update({ where: { id: roomId }, data: { status: 'FINISHED' } });
+    try {
+      await matchSettlement.settle(finished);
+    } catch (e) {
+      logger.error('forfeit settlement failed', {
+        matchId: finished.matchId,
+        error: (e as Error).message,
+      });
+    }
+    sessions.delete(roomId);
+    return finished;
+  },
 };

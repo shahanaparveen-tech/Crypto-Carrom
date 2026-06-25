@@ -63,6 +63,7 @@ export const useNetMatch = (roomId: string | null) => {
   const myId = user?.id ?? '';
   const [state, setState] = useState<NetGameState | null>(null);
   const [lastShot, setLastShot] = useState<IncomingShot | null>(null);
+  const [pausedUser, setPausedUser] = useState<string | null>(null);
   const nonceRef = useRef(0);
 
   useEffect(() => {
@@ -73,10 +74,18 @@ export const useNetMatch = (roomId: string | null) => {
       s.emit('game:join', { roomId });
     };
     const onState = (p: { roomId: string; state: NetGameState }): void => {
-      if (p.roomId === roomId) setState(p.state);
+      if (p.roomId !== roomId) return;
+      setState(p.state);
+      if (p.state.status === 'FINISHED') setPausedUser(null);
     };
     const onStart = (p: { roomId: string; state: NetGameState }): void => {
       if (p.roomId === roomId) setState(p.state);
+    };
+    const onPaused = (p: { roomId: string; userId: string }): void => {
+      if (p.roomId === roomId) setPausedUser(p.userId);
+    };
+    const onResumed = (p: { roomId: string; userId: string }): void => {
+      if (p.roomId === roomId) setPausedUser((u) => (u === p.userId ? null : u));
     };
     const onShot = (p: {
       roomId: string;
@@ -100,6 +109,8 @@ export const useNetMatch = (roomId: string | null) => {
     s.on('game:state', onState);
     s.on('game:start', onStart);
     s.on('game:shot', onShot);
+    s.on('game:paused', onPaused);
+    s.on('game:resumed', onResumed);
     if (s.connected) join();
 
     return () => {
@@ -107,6 +118,8 @@ export const useNetMatch = (roomId: string | null) => {
       s.off('game:state', onState);
       s.off('game:start', onStart);
       s.off('game:shot', onShot);
+      s.off('game:paused', onPaused);
+      s.off('game:resumed', onResumed);
     };
   }, [roomId]);
 
@@ -114,5 +127,5 @@ export const useNetMatch = (roomId: string | null) => {
     connectSocket().emit('game:shot', { roomId, outcome, inputs });
   };
 
-  return { myId, state, lastShot, sendShot };
+  return { myId, state, lastShot, pausedUser, sendShot };
 };
