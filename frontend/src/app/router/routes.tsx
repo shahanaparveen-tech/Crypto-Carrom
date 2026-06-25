@@ -8,6 +8,7 @@ import { ProtectedRoute, PublicOnlyRoute } from './ProtectedRoute';
 
 // Code-split the game (PixiJS) so it only loads when a player enters a board.
 const GamePage = lazy(() => import('@features/game/pages/GamePage'));
+const MultiplayerMatchPage = lazy(() => import('@features/game/pages/MultiplayerMatchPage'));
 const withSuspense = (node: JSX.Element): JSX.Element => (
   <Suspense fallback={<FullPageSpinner />}>{node}</Suspense>
 );
@@ -26,6 +27,8 @@ import MatchmakingPage from '@features/matchmaking/pages/MatchmakingPage';
 import ProfilePage from '@features/profile/pages/ProfilePage';
 import WalletPage from '@features/wallet/pages/WalletPage';
 import SettingsPage from '@features/settings/pages/SettingsPage';
+import LeaderboardPage from '@features/leaderboard/pages/LeaderboardPage';
+import NotificationsPage from '@features/notifications/pages/NotificationsPage';
 
 /** Application route table. Implemented features use real pages; the rest are placeholders. */
 export const router = createBrowserRouter([
@@ -58,9 +61,10 @@ export const router = createBrowserRouter([
           { path: ROUTES.SETTINGS, element: <SettingsPage /> },
           { path: ROUTES.PRACTICE, element: withSuspense(<GamePage />) },
           { path: ROUTES.GAME, element: withSuspense(<GamePage />) },
+          { path: ROUTES.MATCH, element: withSuspense(<MultiplayerMatchPage />) },
           { path: ROUTES.MATCHMAKING, element: <MatchmakingPage /> },
-          { path: ROUTES.LEADERBOARD, element: <PlaceholderPage title="Leaderboard" /> },
-          { path: ROUTES.NOTIFICATIONS, element: <PlaceholderPage title="Notifications" /> },
+          { path: ROUTES.LEADERBOARD, element: <LeaderboardPage /> },
+          { path: ROUTES.NOTIFICATIONS, element: <NotificationsPage /> },
           { path: ROUTES.FRIENDS, element: <FriendsPage /> },
           { path: ROUTES.EQUIPMENT, element: <EquipmentPage /> },
           {

@@ -1,18 +1,22 @@
 /**
- * Authoritative Carrom game-state types. The rule engine is pure: every
+ * Authoritative Carrom game-state types. Generalised to teams so the same engine
+ * powers 1v1 (single-member teams) and 2v2 (two-member teams). Pure: every
  * transition takes a state + shot outcome and returns a new state + events.
  */
 
 export type CoinColor = 'WHITE' | 'BLACK' | 'QUEEN';
-export type Seat = 0 | 1;
+export type TeamId = 'A' | 'B';
+export type MatchType = '1v1' | '2v2';
 export type CoinState = 'ON_BOARD' | 'POCKETED' | 'RETURNED';
 export type TurnPhase = 'AIMING' | 'SIMULATING' | 'RESOLVING' | 'FINISHED';
+export type QueenStatus = 'ON_BOARD' | 'PENDING_COVER' | 'SECURED';
+export type QueenReturnReason = 'MISS' | 'ONLY_OPPONENT' | 'FOUL' | 'TURN_LOST';
 
 export interface Coin {
   id: string;
   color: CoinColor;
-  /** Owning player id; null for the neutral queen. */
-  owner: string | null;
+  /** Owning team; null for the neutral queen. */
+  owner: TeamId | null;
   state: CoinState;
   x: number;
   y: number;
@@ -20,25 +24,34 @@ export interface Coin {
 
 export interface PlayerState {
   userId: string;
-  seat: Seat;
-  coinColor: 'WHITE' | 'BLACK';
-  /** Count of own-colour coins currently pocketed (net of returns). */
+  /** Seat index in the turn rotation (0..3). */
+  seat: number;
+  teamId: TeamId;
+  fouls: number;
+}
+
+export interface TeamState {
+  id: TeamId;
+  color: 'WHITE' | 'BLACK';
+  members: string[];
+  /** Team coins currently pocketed (net of returns). */
   pocketedOwn: number;
-  /** Ownership-tracked ids of this player's pocketed coins (for penalties). */
+  /** Ids of the team's pocketed coins (for penalty returns). */
   pocketedCoinIds: string[];
   score: number;
-  /** Deferred coin-return debt when a foul occurs with nothing to return. */
+  /** Deferred coin-return debt (team-level). */
   pendingPenalty: number;
-  fouls: number;
 }
 
 export interface GameState {
   matchId: string;
   mode: string;
+  matchType: MatchType;
   status: 'ACTIVE' | 'FINISHED';
-  /** Seat-ordered player ids: [seat0, seat1]. */
-  order: [string, string];
+  /** Seat-ordered player ids (length 2 for 1v1, 4 for 2v2). */
+  order: string[];
   players: Record<string, PlayerState>;
+  teams: Record<TeamId, TeamState>;
   coins: Coin[];
   turn: {
     currentPlayer: string;
@@ -48,17 +61,12 @@ export interface GameState {
   };
   queen: {
     status: QueenStatus;
-    /** Permanent owner once SECURED. */
-    owner: string | null;
-    /** Transient claimer who owes a cover during PENDING_COVER. */
-    claimedBy: string | null;
+    owner: TeamId | null;
+    claimedBy: TeamId | null;
     onBoard: boolean;
   };
-  winnerId: string | null;
+  winnerTeam: TeamId | null;
 }
-
-export type QueenStatus = 'ON_BOARD' | 'PENDING_COVER' | 'SECURED';
-export type QueenReturnReason = 'MISS' | 'ONLY_OPPONENT' | 'FOUL' | 'TURN_LOST';
 
 /** Result of a settled physics simulation reported by the shooter. */
 export interface ShotOutcome {
@@ -67,22 +75,22 @@ export interface ShotOutcome {
 }
 
 export type GameEvent =
-  | { type: 'coin:pocketed'; coinIds: string[]; owner: string | null; scoringPlayer: string | null }
+  | { type: 'coin:pocketed'; coinIds: string[]; owner: TeamId | null; scoringTeam: TeamId | null }
   | { type: 'coin:returned'; coinId: string; slot: { x: number; y: number } }
   | { type: 'foul:committed'; player: string; reason: 'STRIKER_POCKETED' }
   | { type: 'turn:extra'; player: string }
-  | { type: 'turn:changed'; nextPlayer: string; strikerSide: Seat }
-  | { type: 'queen-pocketed'; claimedBy: string; turnNumber: number }
-  | { type: 'queen-pending-cover'; player: string }
-  | { type: 'queen-secured'; owner: string }
+  | { type: 'turn:changed'; nextPlayer: string; strikerSide: 0 | 1 }
+  | { type: 'queen-pocketed'; claimedBy: TeamId; turnNumber: number }
+  | { type: 'queen-pending-cover'; team: TeamId }
+  | { type: 'queen-secured'; owner: TeamId }
   | { type: 'queen-returned'; reason: QueenReturnReason; position: { x: number; y: number } }
   | {
       type: 'queen-owner-updated';
       status: QueenStatus;
-      owner: string | null;
-      claimedBy: string | null;
+      owner: TeamId | null;
+      claimedBy: TeamId | null;
     }
-  | { type: 'match:result'; winnerId: string; scores: Record<string, number> };
+  | { type: 'match:result'; winnerTeam: TeamId; winners: string[]; scores: Record<TeamId, number> };
 
 export interface ApplyShotResult {
   state: GameState;

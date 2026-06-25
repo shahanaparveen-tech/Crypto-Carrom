@@ -30,27 +30,31 @@ const makePiece = (id: string, kind: PieceKind, x: number, y: number): Piece => 
   pocketed: false,
 });
 
-/** Places `count` coins evenly on a ring, alternating white/black (starts white). */
-const ring = (pieces: Piece[], count: number, radius: number, startIndex: number): void => {
-  for (let i = 0; i < count; i += 1) {
-    const angle = (-90 + i * (360 / count)) * (Math.PI / 180);
-    const x = BOARD.CENTER + radius * Math.cos(angle);
-    const y = BOARD.CENTER + radius * Math.sin(angle);
-    const kind: PieceKind = i % 2 === 0 ? 'white' : 'black';
-    pieces.push(makePiece(`c${startIndex + i}`, kind, x, y));
-  }
-};
-
 /**
  * Builds the standard opening layout: a red queen at the centre, an inner ring
  * of 6 and an outer ring of 12 coins, alternating colours → exactly 9 white +
- * 9 black + 1 queen. The striker rests on the bottom baseline.
+ * 9 black + 1 queen. Coin ids match the server scheme (`Q`, `w1..w9`, `b1..b9`)
+ * so networked shot outcomes & coin returns line up by id.
  */
 export const createBoardState = (): BoardState => {
   const pieces: Piece[] = [];
-  pieces.push(makePiece('queen', 'queen', BOARD.CENTER, BOARD.CENTER));
-  ring(pieces, 6, BOARD.INNER_RING_R, 0); // 3 white + 3 black
-  ring(pieces, 12, BOARD.OUTER_RING_R, 6); // 6 white + 6 black
+  pieces.push(makePiece('Q', 'queen', BOARD.CENTER, BOARD.CENTER));
+
+  let w = 0;
+  let b = 0;
+  const place = (count: number, radius: number): void => {
+    for (let i = 0; i < count; i += 1) {
+      const angle = (-90 + i * (360 / count)) * (Math.PI / 180);
+      const x = BOARD.CENTER + radius * Math.cos(angle);
+      const y = BOARD.CENTER + radius * Math.sin(angle);
+      const white = i % 2 === 0;
+      const id = white ? `w${(w += 1)}` : `b${(b += 1)}`;
+      pieces.push(makePiece(id, white ? 'white' : 'black', x, y));
+    }
+  };
+  place(6, BOARD.INNER_RING_R); // w1,b1,w2,b2,w3,b3
+  place(12, BOARD.OUTER_RING_R); // w4,b4,…,w9,b9
+
   pieces.push(makePiece('striker', 'striker', BOARD.CENTER, BOARD.STRIKER_Y));
   return { pieces };
 };

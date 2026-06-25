@@ -22,6 +22,13 @@ export const SOCKET_EVENTS = {
   FOUL: 'foul',
   MATCH_FINISHED: 'match-finished',
 
+  // ---- Authoritative game session (rule-engine driven) ----
+  GAME_JOIN: 'game:join',
+  GAME_READY: 'game:ready',
+  GAME_START: 'game:start',
+  GAME_SHOT: 'game:shot',
+  GAME_STATE: 'game:state',
+
   // ---- Chat ----
   CHAT_MESSAGE: 'chat-message',
 

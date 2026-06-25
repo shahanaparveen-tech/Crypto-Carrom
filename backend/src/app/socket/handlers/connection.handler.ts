@@ -3,6 +3,7 @@ import { logger } from '../../logger';
 import type { TypedServer, TypedSocket } from '../types';
 import { registerRoomHandlers } from './room.handler';
 import { registerMatchHandlers } from './match.handler';
+import { registerGameHandlers } from './game.handler';
 import { registerChatHandlers } from './chat.handler';
 import { registerSpectatorHandlers } from './spectator.handler';
 
@@ -20,6 +21,7 @@ export const handleConnection = (io: TypedServer): void => {
 
     registerRoomHandlers(io, socket);
     registerMatchHandlers(io, socket);
+    registerGameHandlers(io, socket);
     registerChatHandlers(io, socket);
     registerSpectatorHandlers(io, socket);
 

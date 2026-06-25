@@ -1,29 +1,37 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Copy, Check, Play, LogOut, Users, Crown } from 'lucide-react';
+import { X, Copy, Check, Play, LogOut, Users, Crown, CheckCircle2 } from 'lucide-react';
 
 import { Avatar, ActionPill } from '@shared/components';
-import { ROUTES } from '@app/config/routes.constants';
+import { matchRoute } from '@app/config/routes.constants';
+import { useAuthState } from '@features/auth/hooks';
 import type { Room } from '../services/rooms.api';
 import { useRoom, useLeaveRoom } from '../hooks/useRooms';
+import { useRoomMatch } from '../hooks/useRoomMatch';
 
 interface RoomModalProps {
-  /** The room as created/joined (initial snapshot). */
   room: Room;
-  /** Whether the current user is the host (can start). */
   isHost: boolean;
   onClose: () => void;
 }
 
-export const RoomModal = ({ room, isHost, onClose }: RoomModalProps): JSX.Element => {
+export const RoomModal = ({ room, onClose }: RoomModalProps): JSX.Element => {
   const navigate = useNavigate();
+  const { user } = useAuthState();
   const { data } = useRoom(room.code);
   const leave = useLeaveRoom();
   const [copied, setCopied] = useState(false);
 
   const current = data?.room ?? room;
   const members = current.members;
-  const full = members.length >= current.maxPlayers;
+  const { ready, started, sendReady } = useRoomMatch(current.id);
+  const myId = user?.id ?? '';
+  const myReady = !!ready[myId];
+
+  const nameOf = (userId: string): string => {
+    const m = members.find((x) => x.userId === userId);
+    return m?.displayName ?? m?.username ?? 'Player';
+  };
 
   const copyCode = (): void => {
     void navigator.clipboard?.writeText(current.code);
@@ -71,12 +79,9 @@ export const RoomModal = ({ room, isHost, onClose }: RoomModalProps): JSX.Elemen
               {copied ? <Check size={18} /> : <Copy size={18} />}
             </button>
           </div>
-          <p className="mt-2 text-xs text-felt/55">
-            Friends enter this code in “Join Room” to play with you.
-          </p>
         </div>
 
-        {/* Members */}
+        {/* Members + ready state */}
         <div className="mt-4">
           <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-felt/70">
             <Users size={15} /> Players · {members.length}/{current.maxPlayers}
@@ -96,6 +101,13 @@ export const RoomModal = ({ room, isHost, onClose }: RoomModalProps): JSX.Elemen
                     <Crown size={11} /> Host
                   </span>
                 )}
+                {ready[m.userId] ? (
+                  <span className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                    <CheckCircle2 size={14} /> Ready
+                  </span>
+                ) : (
+                  <span className="text-xs text-felt/40">Not ready</span>
+                )}
               </div>
             ))}
             {Array.from({ length: Math.max(0, current.maxPlayers - members.length) }).map(
@@ -114,32 +126,47 @@ export const RoomModal = ({ room, isHost, onClose }: RoomModalProps): JSX.Elemen
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <ActionPill
-            tone="red"
-            icon={<LogOut size={16} />}
-            onClick={handleLeave}
-            className="w-full"
-          >
-            Leave
-          </ActionPill>
-          {isHost ? (
+        {/* Started banner / actions */}
+        {started ? (
+          <div className="mt-5 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 text-center">
+            <p className="font-display text-lg font-bold text-emerald-300">Match started!</p>
+            <p className="mt-1 text-sm text-felt/80">
+              {started.matchType.toUpperCase()} · {nameOf(started.turn.currentPlayer)} goes first
+            </p>
             <ActionPill
               tone="green"
               icon={<Play size={16} fill="currentColor" />}
-              onClick={() => navigate(ROUTES.PRACTICE)}
-              disabled={members.length < 2}
+              className="mt-3 w-full"
+              onClick={() => navigate(matchRoute(current.id))}
+            >
+              Enter Board
+            </ActionPill>
+          </div>
+        ) : (
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <ActionPill
+              tone="red"
+              icon={<LogOut size={16} />}
+              onClick={handleLeave}
               className="w-full"
             >
-              Start
+              Leave
             </ActionPill>
-          ) : (
-            <span className="flex items-center justify-center rounded-xl bg-black/20 py-2.5 text-sm font-semibold text-felt/60">
-              {full ? 'Ready — waiting for host' : 'Waiting for host…'}
-            </span>
-          )}
-        </div>
+            <ActionPill
+              tone={myReady ? 'gold' : 'green'}
+              icon={myReady ? <CheckCircle2 size={16} /> : <Check size={16} />}
+              onClick={() => sendReady(!myReady)}
+              className="w-full"
+            >
+              {myReady ? 'Ready ✓' : 'Ready'}
+            </ActionPill>
+          </div>
+        )}
+        {!started && (
+          <p className="mt-2 text-center text-xs text-felt/45">
+            Match starts automatically when everyone is ready.
+          </p>
+        )}
       </div>
     </div>
   );

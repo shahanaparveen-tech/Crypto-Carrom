@@ -12,6 +12,7 @@ export const ROUTES = {
   STAGES: '/stages',
   PRACTICE: '/play',
   GAME: '/game/:roomId',
+  MATCH: '/match/:roomId',
   PROFILE: '/profile',
   LEADERBOARD: '/leaderboard',
   WALLET: '/wallet',
@@ -33,3 +34,4 @@ export const ROUTES = {
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
 
 export const gameRoute = (roomId: string): string => `/game/${roomId}`;
+export const matchRoute = (roomId: string): string => `/match/${roomId}`;

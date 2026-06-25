@@ -3,12 +3,13 @@ import type {
   Coin,
   GameEvent,
   GameState,
-  PlayerState,
   QueenReturnReason,
   ShotOutcome,
+  TeamId,
+  TeamState,
 } from './types';
 import { RECOVERY_SLOTS, BOARD } from './layout';
-import { remainingByColor, opponentOf } from './state';
+import { remainingByColor, otherTeam } from './state';
 
 const SLOT_EPSILON = 10;
 
@@ -20,30 +21,29 @@ const firstFreeSlot = (state: GameState): { x: number; y: number } => {
     );
     if (!occupied) return slot;
   }
-  return RECOVERY_SLOTS[0]!; // fallback: center (shouldn't happen with 19 slots)
+  return RECOVERY_SLOTS[0]!;
 };
 
-/** Returns one of the player's pocketed own coins to the board. */
-const returnOneOwnCoin = (state: GameState, player: PlayerState, events: GameEvent[]): boolean => {
-  // Most-recently pocketed own coin still off the board.
-  for (let i = player.pocketedCoinIds.length - 1; i >= 0; i--) {
-    const id = player.pocketedCoinIds[i]!;
+/** Returns one of the team's pocketed coins to the board. */
+const returnOneTeamCoin = (state: GameState, team: TeamState, events: GameEvent[]): boolean => {
+  for (let i = team.pocketedCoinIds.length - 1; i >= 0; i--) {
+    const id = team.pocketedCoinIds[i]!;
     const coin = state.coins.find((c) => c.id === id && c.state === 'POCKETED');
     if (!coin) continue;
     const slot = firstFreeSlot(state);
     coin.state = 'ON_BOARD';
     coin.x = slot.x;
     coin.y = slot.y;
-    player.pocketedCoinIds.splice(i, 1);
-    player.pocketedOwn = Math.max(0, player.pocketedOwn - 1);
-    player.score = Math.max(0, player.score - 1);
+    team.pocketedCoinIds.splice(i, 1);
+    team.pocketedOwn = Math.max(0, team.pocketedOwn - 1);
+    team.score = Math.max(0, team.score - 1);
     events.push({ type: 'coin:returned', coinId: coin.id, slot });
     return true;
   }
   return false;
 };
 
-/** Returns the offending player's queen to the centre (or nearest free slot). */
+/** Return the queen to the centre (or nearest free slot) on a failed cover. */
 const returnQueen = (state: GameState, events: GameEvent[], reason: QueenReturnReason): void => {
   const queen = state.coins.find((c) => c.color === 'QUEEN');
   if (!queen) return;
@@ -66,17 +66,19 @@ const returnQueen = (state: GameState, events: GameEvent[], reason: QueenReturnR
   events.push({ type: 'queen-owner-updated', status: 'ON_BOARD', owner: null, claimedBy: null });
 };
 
-const findWinner = (state: GameState): string | null => {
+const findWinnerTeam = (state: GameState): TeamId | null => {
   const rem = remainingByColor(state);
-  for (const id of state.order) {
-    const p = state.players[id]!;
-    const colorLeft = p.coinColor === 'WHITE' ? rem.WHITE : rem.BLACK;
-    // Queen gate: the winner must have SECURED the queen (strict spec).
+  for (const id of ['A', 'B'] as TeamId[]) {
+    const team = state.teams[id];
+    const colorLeft = team.color === 'WHITE' ? rem.WHITE : rem.BLACK;
+    // Queen gate: the winning team must have SECURED the queen.
     const queenOk = state.queen.status === 'SECURED' && state.queen.owner === id;
-    if (colorLeft === 0 && p.pendingPenalty === 0 && queenOk) return id;
+    if (colorLeft === 0 && team.pendingPenalty === 0 && queenOk) return id;
   }
   return null;
 };
+
+const strikerSideForTeam = (teamId: TeamId): 0 | 1 => (teamId === 'A' ? 0 : 1);
 
 /**
  * Applies a settled shot to the authoritative state and returns the new state
@@ -96,70 +98,72 @@ export const applyShot = (
 
   const state: GameState = structuredClone(prev);
   const shooter = state.players[shooterId]!;
-  const oppId = opponentOf(state, shooterId);
-  const opp = state.players[oppId]!;
+  const myTeamId = shooter.teamId;
+  const oppTeamId = otherTeam(myTeamId);
+  const myTeam = state.teams[myTeamId];
+  const oppTeam = state.teams[oppTeamId];
 
   // 1. Classify pockets (only coins still on the board).
   const pocketed: Coin[] = state.coins.filter(
     (c) => outcome.pocketedCoinIds.includes(c.id) && c.state === 'ON_BOARD',
   );
-  const ownPockets = pocketed.filter((c) => c.owner === shooterId);
-  const oppPockets = pocketed.filter((c) => c.owner === oppId);
+  const ownPockets = pocketed.filter((c) => c.owner === myTeamId);
+  const oppPockets = pocketed.filter((c) => c.owner === oppTeamId);
   const queenPockets = pocketed.filter((c) => c.color === 'QUEEN');
 
   // 2. Mark pocketed.
   for (const c of pocketed) c.state = 'POCKETED';
 
-  // 3. Score with ownership (opponent coins credit their owner, never the shooter).
+  // 3. Score with team ownership (opponent coins credit their team, never the shooter).
   for (const c of ownPockets) {
-    shooter.pocketedOwn += 1;
-    shooter.pocketedCoinIds.push(c.id);
-    shooter.score += 1;
+    myTeam.pocketedOwn += 1;
+    myTeam.pocketedCoinIds.push(c.id);
+    myTeam.score += 1;
   }
   for (const c of oppPockets) {
-    opp.pocketedOwn += 1;
-    opp.pocketedCoinIds.push(c.id);
-    opp.score += 1;
+    oppTeam.pocketedOwn += 1;
+    oppTeam.pocketedCoinIds.push(c.id);
+    oppTeam.score += 1;
   }
-  // Emit pocket events grouped by attribution.
+
   if (ownPockets.length)
     events.push({
       type: 'coin:pocketed',
       coinIds: ownPockets.map((c) => c.id),
-      owner: shooterId,
-      scoringPlayer: shooterId,
+      owner: myTeamId,
+      scoringTeam: myTeamId,
     });
   if (oppPockets.length)
     events.push({
       type: 'coin:pocketed',
       coinIds: oppPockets.map((c) => c.id),
-      owner: oppId,
-      scoringPlayer: oppId,
+      owner: oppTeamId,
+      scoringTeam: oppTeamId,
     });
   if (queenPockets.length)
     events.push({
       type: 'coin:pocketed',
       coinIds: queenPockets.map((c) => c.id),
       owner: null,
-      scoringPlayer: null,
+      scoringTeam: null,
     });
 
   const foul = outcome.strikerPocketed;
 
-  // 4. Queen — resolve a pending cover owed by this shooter (the shot AFTER the claim).
-  const isCoverShot = state.queen.status === 'PENDING_COVER' && state.queen.claimedBy === shooterId;
+  // 4. Queen — resolve a pending cover owed by this team (the shot AFTER the claim).
+  const isCoverShot = state.queen.status === 'PENDING_COVER' && state.queen.claimedBy === myTeamId;
   if (isCoverShot) {
     if (foul) {
       returnQueen(state, events, 'FOUL');
     } else if (ownPockets.length > 0) {
       state.queen.status = 'SECURED';
-      state.queen.owner = shooterId;
+      state.queen.owner = myTeamId;
       state.queen.claimedBy = null;
-      events.push({ type: 'queen-secured', owner: shooterId });
+      events.push({ type: 'queen-secured', owner: myTeamId });
       events.push({
         type: 'queen-owner-updated',
         status: 'SECURED',
-        owner: shooterId,
+        owner: myTeamId,
         claimedBy: null,
       });
     } else {
@@ -167,70 +171,80 @@ export const applyShot = (
     }
   }
 
-  // 5. Queen — pocketed this shot → claim + pending cover (a same-shot foul voids the claim).
+  // 5. Queen — pocketed this shot → claim + pending cover (a same-shot foul voids it).
   let forceExtraTurn = false;
   if (queenPockets.length) {
     if (foul) {
       returnQueen(state, events, 'FOUL');
     } else {
       state.queen.status = 'PENDING_COVER';
-      state.queen.claimedBy = shooterId;
+      state.queen.claimedBy = myTeamId;
       state.queen.owner = null;
       state.queen.onBoard = false;
       forceExtraTurn = true;
       events.push({
         type: 'queen-pocketed',
-        claimedBy: shooterId,
+        claimedBy: myTeamId,
         turnNumber: state.turn.turnNumber,
       });
-      events.push({ type: 'queen-pending-cover', player: shooterId });
+      events.push({ type: 'queen-pending-cover', team: myTeamId });
       events.push({
         type: 'queen-owner-updated',
         status: 'PENDING_COVER',
         owner: null,
-        claimedBy: shooterId,
+        claimedBy: myTeamId,
       });
     }
   }
 
-  // 6. Foul (striker pocketed) → standard penalty + forced turn end.
+  // 6. Foul (striker pocketed) → standard team penalty + forced turn end.
   if (foul) {
     shooter.fouls += 1;
     events.push({ type: 'foul:committed', player: shooterId, reason: 'STRIKER_POCKETED' });
-    if (!returnOneOwnCoin(state, shooter, events)) {
-      shooter.pendingPenalty += 1; // nothing to return yet — defer
+    if (!returnOneTeamCoin(state, myTeam, events)) {
+      myTeam.pendingPenalty += 1; // nothing to return yet — defer
     }
   } else {
-    // 7. Settle pre-existing penalty debt when the player pockets own coins.
-    while (shooter.pendingPenalty > 0 && returnOneOwnCoin(state, shooter, events)) {
-      shooter.pendingPenalty -= 1;
+    // 7. Settle pre-existing team penalty debt when the team pockets own coins.
+    while (myTeam.pendingPenalty > 0 && returnOneTeamCoin(state, myTeam, events)) {
+      myTeam.pendingPenalty -= 1;
     }
   }
 
   // 8. Extra turn: a clean own pocket OR a fresh queen claim — never on a foul.
   const extraTurn = (ownPockets.length > 0 || forceExtraTurn) && !foul;
 
-  // 7. Win check.
-  const winnerId = findWinner(state);
-  if (winnerId) {
+  // 9. Win check.
+  const winnerTeam = findWinnerTeam(state);
+  if (winnerTeam) {
     state.status = 'FINISHED';
-    state.winnerId = winnerId;
+    state.winnerTeam = winnerTeam;
     state.turn.phase = 'FINISHED';
-    const scores: Record<string, number> = {};
-    for (const id of state.order) scores[id] = state.players[id]!.score;
-    events.push({ type: 'match:result', winnerId, scores });
+    const scores: Record<TeamId, number> = { A: state.teams.A.score, B: state.teams.B.score };
+    events.push({
+      type: 'match:result',
+      winnerTeam,
+      winners: state.teams[winnerTeam].members,
+      scores,
+    });
     return { state, events };
   }
 
-  // 8. Next turn.
+  // 10. Next turn — same player on extra turn, else advance the seat rotation.
   if (extraTurn) {
     state.turn.extraTurn = true;
     events.push({ type: 'turn:extra', player: shooterId });
   } else {
-    state.turn.currentPlayer = oppId;
+    const idx = state.order.indexOf(shooterId);
+    const next = state.order[(idx + 1) % state.order.length]!;
+    state.turn.currentPlayer = next;
     state.turn.extraTurn = false;
     state.turn.turnNumber += 1;
-    events.push({ type: 'turn:changed', nextPlayer: oppId, strikerSide: opp.seat });
+    events.push({
+      type: 'turn:changed',
+      nextPlayer: next,
+      strikerSide: strikerSideForTeam(state.players[next]!.teamId),
+    });
   }
   state.turn.phase = 'AIMING';
 

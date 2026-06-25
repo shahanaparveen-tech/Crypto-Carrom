@@ -1,4 +1,4 @@
-import type { Coin, Seat } from './types';
+import type { Coin } from './types';
 
 /**
  * Board geometry — kept in sync with the client engine's 600×600 logical space
@@ -40,16 +40,15 @@ export const RECOVERY_SLOTS: Slot[] = buildSlots();
 
 /**
  * Builds the opening coin layout: queen at center, then 18 ring coins
- * alternating WHITE/BLACK (9 each). WHITE → seat 0, BLACK → seat 1.
+ * alternating WHITE/BLACK (9 each). WHITE → team A, BLACK → team B.
  */
-export const createCoinLayout = (seat0Id: string, seat1Id: string): Coin[] => {
+export const createCoinLayout = (): Coin[] => {
   const coins: Coin[] = [
     { id: 'Q', color: 'QUEEN', owner: null, state: 'ON_BOARD', x: BOARD.CENTER, y: BOARD.CENTER },
   ];
 
   let whiteN = 0;
   let blackN = 0;
-  // Ring slots after the center slot (indices 1..18).
   for (let i = 1; i < RECOVERY_SLOTS.length; i++) {
     const slot = RECOVERY_SLOTS[i]!;
     const isWhite = (i - 1) % 2 === 0;
@@ -58,7 +57,7 @@ export const createCoinLayout = (seat0Id: string, seat1Id: string): Coin[] => {
       coins.push({
         id: `w${whiteN}`,
         color: 'WHITE',
-        owner: seat0Id,
+        owner: 'A',
         state: 'ON_BOARD',
         x: slot.x,
         y: slot.y,
@@ -68,7 +67,7 @@ export const createCoinLayout = (seat0Id: string, seat1Id: string): Coin[] => {
       coins.push({
         id: `b${blackN}`,
         color: 'BLACK',
-        owner: seat1Id,
+        owner: 'B',
         state: 'ON_BOARD',
         x: slot.x,
         y: slot.y,
@@ -77,5 +76,3 @@ export const createCoinLayout = (seat0Id: string, seat1Id: string): Coin[] => {
   }
   return coins;
 };
-
-export const colorForSeat = (seat: Seat): 'WHITE' | 'BLACK' => (seat === 0 ? 'WHITE' : 'BLACK');

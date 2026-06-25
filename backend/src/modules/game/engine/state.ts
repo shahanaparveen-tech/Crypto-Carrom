@@ -1,37 +1,46 @@
-import type { GameState, PlayerState } from './types';
-import { createCoinLayout, colorForSeat } from './layout';
+import type { GameState, MatchType, PlayerState, TeamId, TeamState } from './types';
+import { createCoinLayout } from './layout';
 
-/** Builds the initial authoritative state for a 1v1 match. */
+/** Seat 0,2 → team A; seat 1,3 → team B (alternating teams in the rotation). */
+export const teamOfSeat = (seat: number): TeamId => (seat % 2 === 0 ? 'A' : 'B');
+
+/**
+ * Builds the initial authoritative state.
+ * @param seats Seat-ordered player ids — length 2 (1v1) or 4 (2v2).
+ */
 export const createInitialState = (
   matchId: string,
   mode: string,
-  seat0Id: string,
-  seat1Id: string,
+  matchType: MatchType,
+  seats: string[],
 ): GameState => {
-  const mkPlayer = (userId: string, seat: 0 | 1): PlayerState => ({
-    userId,
-    seat,
-    coinColor: colorForSeat(seat),
+  const players: Record<string, PlayerState> = {};
+  seats.forEach((userId, seat) => {
+    players[userId] = { userId, seat, teamId: teamOfSeat(seat), fouls: 0 };
+  });
+
+  const mkTeam = (id: TeamId, color: 'WHITE' | 'BLACK'): TeamState => ({
+    id,
+    color,
+    members: seats.filter((_, i) => teamOfSeat(i) === id),
     pocketedOwn: 0,
     pocketedCoinIds: [],
     score: 0,
     pendingPenalty: 0,
-    fouls: 0,
   });
 
   return {
     matchId,
     mode,
+    matchType,
     status: 'ACTIVE',
-    order: [seat0Id, seat1Id],
-    players: {
-      [seat0Id]: mkPlayer(seat0Id, 0),
-      [seat1Id]: mkPlayer(seat1Id, 1),
-    },
-    coins: createCoinLayout(seat0Id, seat1Id),
-    turn: { currentPlayer: seat0Id, turnNumber: 1, extraTurn: false, phase: 'AIMING' },
+    order: [...seats],
+    players,
+    teams: { A: mkTeam('A', 'WHITE'), B: mkTeam('B', 'BLACK') },
+    coins: createCoinLayout(),
+    turn: { currentPlayer: seats[0]!, turnNumber: 1, extraTurn: false, phase: 'AIMING' },
     queen: { status: 'ON_BOARD', owner: null, claimedBy: null, onBoard: true },
-    winnerId: null,
+    winnerTeam: null,
   };
 };
 
@@ -44,5 +53,4 @@ export const remainingByColor = (
   return out;
 };
 
-export const opponentOf = (state: GameState, userId: string): string =>
-  state.order[0] === userId ? state.order[1] : state.order[0];
+export const otherTeam = (teamId: TeamId): TeamId => (teamId === 'A' ? 'B' : 'A');

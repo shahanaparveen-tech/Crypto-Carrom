@@ -10,6 +10,8 @@ import { walletRouter } from '../modules/wallet';
 import { settingsRouter } from '../modules/settings';
 import { friendsRouter } from '../modules/friends';
 import { roomsRouter } from '../modules/rooms';
+import { leaderboardRouter } from '../modules/leaderboard';
+import { notificationsRouter } from '../modules/notifications';
 
 /**
  * Root API router. Every module router is mounted here under its own path.
@@ -38,6 +40,8 @@ apiRouter.use('/wallet', walletRouter);
 apiRouter.use('/settings', settingsRouter);
 apiRouter.use('/friends', friendsRouter);
 apiRouter.use('/rooms', roomsRouter);
+apiRouter.use('/leaderboard', leaderboardRouter);
+apiRouter.use('/notifications', notificationsRouter);
 
 /** Liveness + dependency health check. */
 apiRouter.get(

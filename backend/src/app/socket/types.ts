@@ -1,5 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 
+import type { GameState, GameEvent, ShotOutcome } from '../../modules/game/engine';
+
 /**
  * Typed Socket.IO contracts. Payload shapes are intentionally light at the
  * foundation stage and tighten as game modules are implemented.
@@ -14,6 +16,17 @@ export interface ServerToClientEvents {
   'match-finished': (payload: { roomId: string; winnerId: string | null }) => void;
   'chat-message': (payload: ChatMessagePayload) => void;
   'server-error': (payload: { code: string; message: string }) => void;
+
+  // ---- Authoritative game session ----
+  'game:start': (payload: { roomId: string; state: GameState }) => void;
+  'game:state': (payload: { roomId: string; state: GameState }) => void;
+  'game:shot': (payload: {
+    roomId: string;
+    shooter: string;
+    inputs?: unknown;
+    events: GameEvent[];
+    state: GameState;
+  }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -25,6 +38,14 @@ export interface ClientToServerEvents {
   'striker-shot': (payload: StrikerShotPayload, ack?: AckFn) => void;
   'chat-message': (payload: ChatMessagePayload, ack?: AckFn) => void;
   'spectator-join': (payload: { roomId: string }, ack?: AckFn) => void;
+
+  // ---- Authoritative game session ----
+  'game:join': (payload: { roomId: string }, ack?: AckFn) => void;
+  'game:ready': (payload: { roomId: string; ready: boolean }, ack?: AckFn) => void;
+  'game:shot': (
+    payload: { roomId: string; outcome: ShotOutcome; inputs?: unknown },
+    ack?: AckFn,
+  ) => void;
 }
 
 export interface InterServerEvents {

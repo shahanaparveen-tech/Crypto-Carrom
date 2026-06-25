@@ -13,7 +13,10 @@ const IMMERSIVE_ROUTES: string[] = [ROUTES.MATCHMAKING, ROUTES.PRACTICE];
 /** Primary authenticated app shell: top bar, content, and bottom tab bar. */
 export const RootLayout = (): JSX.Element => {
   const { pathname } = useLocation();
-  const immersive = IMMERSIVE_ROUTES.includes(pathname) || pathname.startsWith('/game/');
+  const immersive =
+    IMMERSIVE_ROUTES.includes(pathname) ||
+    pathname.startsWith('/game/') ||
+    pathname.startsWith('/match/');
   const hideTopBar = immersive || FULLSCREEN_ROUTES.includes(pathname);
 
   return (
