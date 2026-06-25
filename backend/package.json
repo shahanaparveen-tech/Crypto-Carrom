@@ -4,7 +4,6 @@
   "private": true,
   "description": "Crypto Carrom backend — Express + Socket.IO + Prisma (PostgreSQL) API server.",
   "main": "dist/app/server.js",
-  "type": "module",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/app/server.ts",
     "build": "prisma generate && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
