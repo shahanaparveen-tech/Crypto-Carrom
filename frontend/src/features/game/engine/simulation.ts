@@ -4,6 +4,7 @@ import type { BoardState, Piece } from './board';
 export interface StepResult {
   pocketed: Piece[]; // pieces that fell into a pocket this frame
   settled: boolean; // all pieces at rest or pocketed
+  maxSpeed: number; // fastest moving piece this frame (0 when fully settled)
 }
 
 const speed = (p: Piece): number => Math.hypot(p.vx, p.vy);
@@ -111,8 +112,9 @@ export const stepWorld = (state: BoardState): StepResult => {
     collide(state.pieces);
     sinkPockets(state.pieces, pocketed);
   }
-  const settled = state.pieces.every((p) => p.pocketed || speed(p) === 0);
-  return { pocketed, settled };
+  let maxSpeed = 0;
+  for (const p of state.pieces) if (!p.pocketed) maxSpeed = Math.max(maxSpeed, speed(p));
+  return { pocketed, settled: maxSpeed === 0, maxSpeed };
 };
 
 /** Launches the striker. `dirX/dirY` is a unit vector; `power` is 0..1. */

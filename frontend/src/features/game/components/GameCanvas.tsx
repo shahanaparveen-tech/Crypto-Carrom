@@ -204,6 +204,7 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
     let ready = false;
     let canvasEl: HTMLCanvasElement | null = null;
     let simFrames = 0; // frames the current shot has been simulating
+    let restFrames = 0; // consecutive frames the board has been near-rest
     const app = new Application();
     const boardG = new Graphics();
     const dynG = new Graphics();
@@ -333,6 +334,7 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
         scoreRef.current.thinking = false;
         turnPocketsRef.current = [];
         simFrames = 0;
+        restFrames = 0;
         shootStriker(getStriker(stateRef.current), shot.dirX, shot.dirY, shot.power);
         phaseRef.current = 'sim';
         emitScore();
@@ -415,14 +417,19 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
           recomputeScore();
           emitScore();
         }
-        // End the turn only once everything is at rest — or force-rest if a shot
-        // jitters forever (guarantees the turn never gets stuck).
-        if (res.settled || simFrames > PHYSICS.MAX_SIM_FRAMES) {
-          if (!res.settled)
-            for (const p of state.pieces) {
-              p.vx = 0;
-              p.vy = 0;
-            }
+        // Coins jittering in a tight cluster may never all reach exact zero, so
+        // settle once motion stays negligible for a short while (or at the cap).
+        if (res.maxSpeed < PHYSICS.NEAR_REST_SPEED) restFrames += 1;
+        else restFrames = 0;
+        if (
+          res.settled ||
+          restFrames >= PHYSICS.NEAR_REST_FRAMES ||
+          simFrames > PHYSICS.MAX_SIM_FRAMES
+        ) {
+          for (const p of state.pieces) {
+            p.vx = 0;
+            p.vy = 0;
+          }
           onSettle();
         }
       }
@@ -457,6 +464,7 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
       if (phaseRef.current !== 'aim' || aim.power <= 0.05) return;
       turnPocketsRef.current = []; // fresh shot
       simFrames = 0;
+      restFrames = 0;
       shootStriker(getStriker(stateRef.current), aim.dirX, aim.dirY, aim.power);
       phaseRef.current = 'sim';
     };

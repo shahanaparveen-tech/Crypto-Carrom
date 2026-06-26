@@ -16,6 +16,7 @@ import {
   type BoardState,
   type Piece,
 } from '../engine';
+import { cn } from '@shared/utils/cn';
 import { drawBoard, drawPiece } from './boardDraw';
 import type {
   IncomingShot,
@@ -88,6 +89,7 @@ export const NetGameCanvas = ({
     let ready = false;
     let canvasEl: HTMLCanvasElement | null = null;
     let simFrames = 0;
+    let restFrames = 0; // consecutive frames the board has been near-rest
     const app = new Application();
     const boardG = new Graphics();
     const dynG = new Graphics();
@@ -186,6 +188,7 @@ export const NetGameCanvas = ({
       pendingEventsRef.current = shot.events;
       turnPocketsRef.current = [];
       simFrames = 0;
+      restFrames = 0;
       shootStriker(getStriker(boardRef.current), dirX, dirY, power);
       phaseRef.current = 'sim';
     };
@@ -228,17 +231,27 @@ export const NetGameCanvas = ({
         simFrames += 1;
         const res = stepWorld(boardRef.current);
         if (res.pocketed.length) turnPocketsRef.current.push(...res.pocketed);
-        if (res.settled || simFrames > PHYSICS.MAX_SIM_FRAMES) {
-          if (!res.settled)
-            for (const p of boardRef.current.pieces) {
-              p.vx = 0;
-              p.vy = 0;
-            }
+        // Coins jittering in a tight cluster may never all reach exact zero, so
+        // settle once motion stays negligible for a short while (or at the cap).
+        if (res.maxSpeed < PHYSICS.NEAR_REST_SPEED) restFrames += 1;
+        else restFrames = 0;
+        if (
+          res.settled ||
+          restFrames >= PHYSICS.NEAR_REST_FRAMES ||
+          simFrames > PHYSICS.MAX_SIM_FRAMES
+        ) {
+          for (const p of boardRef.current.pieces) {
+            p.vx = 0;
+            p.vy = 0;
+          }
           onSettle();
         }
       } else {
+        // Always apply a freshly broadcast shot (mine or the opponent's).
+        // `waiting` only gates re-aiming (canAim), never broadcast processing —
+        // otherwise my own shot's ack could never clear it (deadlock).
         const shot = lastShotRef.current;
-        if (shot && shot.nonce !== processedNonceRef.current && !waitingRef.current) {
+        if (shot && shot.nonce !== processedNonceRef.current) {
           processShot(shot);
         } else {
           syncTurnStriker();
@@ -283,6 +296,7 @@ export const NetGameCanvas = ({
       };
       turnPocketsRef.current = [];
       simFrames = 0;
+      restFrames = 0;
       shootStriker(s, aim.dirX, aim.dirY, aim.power);
       phaseRef.current = 'sim';
     };
@@ -344,25 +358,48 @@ export const NetGameCanvas = ({
     }
   };
 
-  const vertical = state ? sideForSeat(state.players[myId]?.seat ?? 0) >= SIDE.LEFT : false;
+  const mySide = state ? sideForSeat(state.players[myId]?.seat ?? 0) : SIDE.BOTTOM;
+  const vertical = mySide === SIDE.LEFT || mySide === SIDE.RIGHT;
+
+  // The striker rail sits on the current player's side and is oriented to it.
+  const layout =
+    mySide === SIDE.TOP
+      ? 'flex-col-reverse'
+      : mySide === SIDE.LEFT
+        ? 'flex-row'
+        : mySide === SIDE.RIGHT
+          ? 'flex-row-reverse'
+          : 'flex-col';
+
+  const railTrack = (
+    <div
+      className={cn(
+        'rounded-full border border-gold/30 bg-gradient-to-b from-wood-light/80 to-wood-dark/80 shadow-inner',
+        vertical ? 'flex items-center justify-center px-2 py-3' : 'w-full max-w-[420px] px-4 py-3',
+      )}
+    >
+      <input
+        type="range"
+        min={BOARD.STRIKER_MIN}
+        max={BOARD.STRIKER_MAX}
+        value={sliderT}
+        onChange={(e) => onSlider(Number(e.target.value))}
+        aria-label="Position striker"
+        className="accent-gold"
+        style={vertical ? { writingMode: 'vertical-lr', height: 240 } : { width: '100%' }}
+      />
+    </div>
+  );
 
   return (
-    <div className="w-full">
+    <div
+      className={cn('mx-auto flex w-full max-w-[600px] items-center justify-center gap-3', layout)}
+    >
       <div
         ref={hostRef}
-        className="mx-auto w-full max-w-[540px] overflow-hidden rounded-3xl shadow-panel"
+        className="w-full max-w-[540px] overflow-hidden rounded-3xl shadow-panel"
       />
-      <div className="mx-auto mt-4 w-full max-w-[420px] rounded-full border border-gold/30 bg-gradient-to-b from-wood-light/80 to-wood-dark/80 px-4 py-3 shadow-inner">
-        <input
-          type="range"
-          min={BOARD.STRIKER_MIN}
-          max={BOARD.STRIKER_MAX}
-          value={sliderT}
-          onChange={(e) => onSlider(Number(e.target.value))}
-          aria-label={vertical ? 'Position striker (vertical)' : 'Position striker'}
-          className="w-full accent-gold"
-        />
-      </div>
+      {railTrack}
     </div>
   );
 };

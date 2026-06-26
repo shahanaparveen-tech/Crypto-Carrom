@@ -72,7 +72,9 @@ export const PHYSICS = {
   COIN_MASS: 1,
   STRIKER_MASS: 1.4,
   SUBSTEPS: 3, // physics sub-steps per animation frame (anti-tunnelling)
-  MAX_SIM_FRAMES: 900, // hard cap (~15s) — force-rest if a shot never settles
+  NEAR_REST_SPEED: 0.45, // a shot is "almost stopped" below this peak speed
+  NEAR_REST_FRAMES: 24, // frames of near-rest before we declare the turn over
+  MAX_SIM_FRAMES: 600, // hard cap (~10s) — force-rest if a shot never settles
 } as const;
 
 export const COLORS = {
