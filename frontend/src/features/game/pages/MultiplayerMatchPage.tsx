@@ -15,6 +15,9 @@ export const MultiplayerMatchPage = (): JSX.Element => {
   const oppTeam = myTeam === 'A' ? 'B' : 'A';
   const myScore = state?.teams[myTeam].score ?? 0;
   const oppScore = state?.teams[oppTeam].score ?? 0;
+  // Each team owns one colour; coins render white→blue puck, black→dark puck.
+  const swatch = (team: 'A' | 'B'): string =>
+    state?.teams[team].color === 'WHITE' ? '#29a3e6' : '#2b2f38';
 
   const banner = (): string => {
     if (!state) return 'Connecting…';
@@ -41,6 +44,13 @@ export const MultiplayerMatchPage = (): JSX.Element => {
         >
           <Avatar name="You" size={56} className="!rounded-xl border-[3px]" />
           <span className="mt-1 text-[11px] font-semibold text-white/85">You</span>
+          <span className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-white/70">
+            <span
+              className="h-2.5 w-2.5 rounded-full ring-1 ring-white/40"
+              style={{ background: swatch(myTeam) }}
+            />
+            your coins
+          </span>
         </div>
 
         <div className="flex flex-1 flex-col items-center pt-1">
@@ -57,6 +67,13 @@ export const MultiplayerMatchPage = (): JSX.Element => {
         >
           <Avatar name="Opponent" size={56} className="!rounded-xl border-[3px]" />
           <span className="mt-1 text-[11px] font-semibold text-white/85">Opponent</span>
+          <span className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-white/70">
+            <span
+              className="h-2.5 w-2.5 rounded-full ring-1 ring-white/40"
+              style={{ background: swatch(oppTeam) }}
+            />
+            their coins
+          </span>
         </div>
       </div>
 
