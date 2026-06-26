@@ -44,7 +44,9 @@ export const createBoardState = (): BoardState => {
   let b = 0;
   const place = (count: number, radius: number): void => {
     for (let i = 0; i < count; i += 1) {
-      const angle = (-90 + i * (360 / count)) * (Math.PI / 180);
+      // Start at 0° (east) to match the server's RECOVERY_SLOTS angles exactly,
+      // so coin ids, colours AND positions line up with the authoritative layout.
+      const angle = i * ((2 * Math.PI) / count);
       const x = BOARD.CENTER + radius * Math.cos(angle);
       const y = BOARD.CENTER + radius * Math.sin(angle);
       const white = i % 2 === 0;

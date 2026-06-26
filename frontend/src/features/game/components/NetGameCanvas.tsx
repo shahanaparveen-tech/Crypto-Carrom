@@ -159,14 +159,25 @@ export const NetGameCanvas = ({
       }
     };
 
+    /**
+     * Snap the striker to the *current* player's baseline centre and reset the
+     * slider. Called after every shot settles — so the striker is always reset
+     * for the next shooter, including extra turns (same player shoots again).
+     */
+    const placeForCurrentTurn = (): void => {
+      const st = stateRef.current;
+      if (!st || st.status !== 'ACTIVE') return;
+      lastTurnRef.current = st.turn.currentPlayer;
+      placeStriker(sideOf(st.turn.currentPlayer), BOARD.CENTER);
+      setSliderT(BOARD.CENTER);
+    };
+
+    // Per-frame safety net: reposition when the authoritative turn changes
+    // (e.g. a state push on reconnect) without fighting the slider mid-aim.
     const syncTurnStriker = (): void => {
       const st = stateRef.current;
       if (!st || st.status !== 'ACTIVE') return;
-      if (st.turn.currentPlayer !== lastTurnRef.current) {
-        lastTurnRef.current = st.turn.currentPlayer;
-        placeStriker(sideOf(st.turn.currentPlayer), BOARD.CENTER);
-        setSliderT(BOARD.CENTER);
-      }
+      if (st.turn.currentPlayer !== lastTurnRef.current) placeForCurrentTurn();
     };
 
     const processShot = (shot: IncomingShot): void => {
@@ -174,12 +185,12 @@ export const NetGameCanvas = ({
       if (shot.shooter === myId) {
         applyEvents(shot.events); // reconcile my own shot with authority
         waitingRef.current = false;
-        syncTurnStriker();
+        placeForCurrentTurn(); // reset striker for whoever shoots next (incl. my extra turn)
         return;
       }
       if (!shot.inputs) {
         applyEvents(shot.events);
-        syncTurnStriker();
+        placeForCurrentTurn();
         return;
       }
       // Deterministically replay the opponent's shot from the exact inputs.
@@ -198,7 +209,11 @@ export const NetGameCanvas = ({
       if (pendingEventsRef.current) {
         applyEvents(pendingEventsRef.current); // opponent shot resolved
         pendingEventsRef.current = null;
+        placeForCurrentTurn(); // striker → next shooter's baseline
       } else {
+        // My shot — report the outcome. The striker is repositioned once the
+        // server acknowledges it (processShot), so the authoritative turn (incl.
+        // any extra turn) decides which baseline it returns to.
         const pocketedCoinIds = turnPocketsRef.current
           .filter((p) => p.kind !== 'striker')
           .map((p) => p.id);
@@ -206,7 +221,6 @@ export const NetGameCanvas = ({
         waitingRef.current = true;
         onLocalShot({ pocketedCoinIds, strikerPocketed }, inputsRef.current);
       }
-      syncTurnStriker();
     };
 
     const redraw = (): void => {
