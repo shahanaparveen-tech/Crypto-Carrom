@@ -169,6 +169,27 @@ export const NetGameCanvas = ({
     };
 
     /**
+     * Force every coin's on-board/pocketed flag to match the authoritative
+     * state. Guarantees the board can never show a coin the server counts as
+     * pocketed (and vice versa) even if local physics diverged slightly.
+     */
+    const reconcileCoins = (): void => {
+      const st = stateRef.current;
+      if (!st) return;
+      for (const c of st.coins) {
+        const p = byId(c.id);
+        if (!p) continue;
+        if (c.state === 'POCKETED') {
+          p.pocketed = true;
+          p.vx = 0;
+          p.vy = 0;
+        } else {
+          p.pocketed = false; // ON_BOARD / RETURNED → visible
+        }
+      }
+    };
+
+    /**
      * Snap the striker to the *current* player's baseline centre and reset the
      * slider. Called after every shot settles — so the striker is always reset
      * for the next shooter, including extra turns (same player shoots again).
@@ -193,12 +214,14 @@ export const NetGameCanvas = ({
       processedNonceRef.current = shot.nonce;
       if (shot.shooter === myId) {
         applyEvents(shot.events); // reconcile my own shot with authority
+        reconcileCoins();
         waitingRef.current = false;
         placeForCurrentTurn(); // reset striker for whoever shoots next (incl. my extra turn)
         return;
       }
       if (!shot.inputs) {
         applyEvents(shot.events);
+        reconcileCoins();
         placeForCurrentTurn();
         return;
       }
@@ -218,6 +241,7 @@ export const NetGameCanvas = ({
       if (pendingEventsRef.current) {
         applyEvents(pendingEventsRef.current); // opponent shot resolved
         pendingEventsRef.current = null;
+        reconcileCoins();
         placeForCurrentTurn(); // striker → next shooter's baseline
       } else {
         // My shot — report the outcome. The striker is repositioned once the

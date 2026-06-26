@@ -43,19 +43,31 @@ export interface NetGameState {
   matchType: '1v1' | '2v2';
   status: 'ACTIVE' | 'FINISHED';
   order: string[];
-  players: Record<string, { userId: string; seat: number; teamId: 'A' | 'B' }>;
+  players: Record<string, { userId: string; username: string; seat: number; teamId: 'A' | 'B' }>;
   teams: {
     A: { id: 'A'; color: 'WHITE' | 'BLACK'; members: string[]; score: number };
     B: { id: 'B'; color: 'WHITE' | 'BLACK'; members: string[]; score: number };
   };
   coins: NetCoin[];
-  turn: { currentPlayer: string; turnNumber: number; extraTurn: boolean };
+  turn: { currentPlayer: string; turnNumber: number; extraTurn: boolean; deadline: number };
   queen: {
     status: 'ON_BOARD' | 'PENDING_COVER' | 'SECURED';
     owner: 'A' | 'B' | null;
     claimedBy: 'A' | 'B' | null;
   };
   winnerTeam: 'A' | 'B' | null;
+}
+
+export interface MatchReward {
+  result: 'WIN' | 'LOSS';
+  coins: string;
+  xp: number;
+  ratingDelta: number;
+}
+export interface GameOver {
+  winnerTeam: 'A' | 'B';
+  durationSec: number;
+  rewards: Record<string, MatchReward>;
 }
 
 export type NetEvent =
@@ -78,6 +90,7 @@ export const useNetMatch = (roomId: string | null) => {
   const [state, setState] = useState<NetGameState | null>(null);
   const [lastShot, setLastShot] = useState<IncomingShot | null>(null);
   const [pausedUser, setPausedUser] = useState<string | null>(null);
+  const [gameOver, setGameOver] = useState<GameOver | null>(null);
   const nonceRef = useRef(0);
   const liveAimRef = useRef<LiveAim | null>(null);
 
@@ -124,12 +137,17 @@ export const useNetMatch = (roomId: string | null) => {
       if (p.roomId !== roomId) return;
       liveAimRef.current = { shooter: p.shooter, ...p.aim };
     };
+    const onOver = (p: { roomId: string } & GameOver): void => {
+      if (p.roomId !== roomId) return;
+      setGameOver({ winnerTeam: p.winnerTeam, durationSec: p.durationSec, rewards: p.rewards });
+    };
 
     s.on('connect', join);
     s.on('game:state', onState);
     s.on('game:start', onStart);
     s.on('game:shot', onShot);
     s.on('game:aim', onAim);
+    s.on('game:over', onOver);
     s.on('game:paused', onPaused);
     s.on('game:resumed', onResumed);
     if (s.connected) join();
@@ -140,6 +158,7 @@ export const useNetMatch = (roomId: string | null) => {
       s.off('game:start', onStart);
       s.off('game:shot', onShot);
       s.off('game:aim', onAim);
+      s.off('game:over', onOver);
       s.off('game:paused', onPaused);
       s.off('game:resumed', onResumed);
     };
@@ -152,5 +171,5 @@ export const useNetMatch = (roomId: string | null) => {
     connectSocket().emit('game:aim', { roomId, aim });
   };
 
-  return { myId, state, lastShot, pausedUser, sendShot, sendAim, liveAim: liveAimRef };
+  return { myId, state, lastShot, pausedUser, gameOver, sendShot, sendAim, liveAim: liveAimRef };
 };

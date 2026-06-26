@@ -10,15 +10,27 @@ const LOSS_XP = 20;
 const expectedScore = (rating: number, oppRating: number): number =>
   1 / (1 + 10 ** ((oppRating - rating) / 400));
 
+export interface SettlementReward {
+  result: 'WIN' | 'LOSS';
+  coins: string; // coins credited this match (as string for JSON/BigInt safety)
+  xp: number;
+  ratingDelta: number;
+}
+export interface SettlementSummary {
+  durationSec: number;
+  rewards: Record<string, SettlementReward>;
+}
+
 /**
  * Settles a finished match: rating (Elo), profile stats, wallet rewards,
  * game history and the global leaderboard. Idempotency is the caller's concern
  * (invoked once, on the finishing shot).
  */
 export const matchSettlement = {
-  async settle(state: GameState): Promise<void> {
-    if (state.status !== 'FINISHED' || !state.winnerTeam) return;
+  async settle(state: GameState): Promise<SettlementSummary | null> {
+    if (state.status !== 'FINISHED' || !state.winnerTeam) return null;
     const winnerTeam = state.winnerTeam;
+    const rewards: Record<string, SettlementReward> = {};
 
     const userIds = state.order;
     const profiles = await prisma.profile.findMany({ where: { userId: { in: userIds } } });
@@ -114,6 +126,15 @@ export const matchSettlement = {
       if (won && perWinner > 0n) {
         await walletService.credit(userId, perWinner, 'MATCH_WINNING', state.matchId);
       }
+
+      rewards[userId] = {
+        result: won ? 'WIN' : 'LOSS',
+        coins: coinsDelta.toString(),
+        xp: won ? WIN_XP : LOSS_XP,
+        ratingDelta: delta,
+      };
     }
+
+    return { durationSec, rewards };
   },
 };

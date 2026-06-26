@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../../app/config/prisma';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../../shared/errors';
 import { logger } from '../../../app/logger';
-import { matchSettlement } from './matchSettlement';
+import { matchSettlement, type SettlementSummary } from './matchSettlement';
 import {
   applyShot,
   createInitialState,
@@ -19,6 +19,11 @@ import {
  */
 const sessions = new Map<string, GameState>();
 
+/** Seconds a player has to take their shot before the turn auto-passes. */
+export const TURN_MS = 20_000;
+
+export type ShotResult = ApplyShotResult & { settlement?: SettlementSummary | null };
+
 const matchTypeFor = (maxPlayers: number): MatchType => (maxPlayers >= 4 ? '2v2' : '1v1');
 
 /** Loads the room with its active (pending/ongoing) match + seated players. */
@@ -30,7 +35,12 @@ const loadRoom = (roomId: string) =>
         where: { status: { in: ['PENDING', 'ONGOING'] } },
         orderBy: { createdAt: 'desc' },
         take: 1,
-        include: { players: { orderBy: { seat: 'asc' } } },
+        include: {
+          players: {
+            orderBy: { seat: 'asc' },
+            include: { user: { select: { username: true } } },
+          },
+        },
       },
     },
   });
@@ -61,7 +71,16 @@ export const gameSession = {
     if (match.players.length < 2) throw new BadRequestError('Need at least 2 players');
 
     const seats = match.players.map((p) => p.userId);
-    const state = createInitialState(match.id, room.mode, matchTypeFor(room.maxPlayers), seats);
+    const names: Record<string, string> = {};
+    for (const p of match.players) names[p.userId] = p.user?.username ?? p.userId;
+    const state = createInitialState(
+      match.id,
+      room.mode,
+      matchTypeFor(room.maxPlayers),
+      seats,
+      names,
+    );
+    state.turn.deadline = Date.now() + TURN_MS;
 
     await prisma.$transaction([
       prisma.match.update({
@@ -92,18 +111,38 @@ export const gameSession = {
   },
 
   /** Validates and applies a player's settled shot to the authoritative state. */
-  async applyPlayerShot(
-    roomId: string,
-    userId: string,
-    outcome: ShotOutcome,
-  ): Promise<ApplyShotResult> {
+  async applyPlayerShot(roomId: string, userId: string, outcome: ShotOutcome): Promise<ShotResult> {
     const state = await this.getState(roomId);
     if (!state) throw new NotFoundError('No active match');
     if (state.status !== 'ACTIVE') throw new BadRequestError('Match is not active');
     if (!state.players[userId]) throw new ForbiddenError('Not a player in this match');
     if (state.turn.currentPlayer !== userId) throw new ForbiddenError('Not your turn');
 
-    const result = applyShot(state, userId, outcome);
+    return this.commitResult(roomId, applyShot(state, userId, outcome));
+  },
+
+  /**
+   * Auto-passes the turn when the current player runs out of time. No-op if the
+   * turn already moved on (stale timer). Returns the timed-out player + result.
+   */
+  async timeoutTurn(
+    roomId: string,
+    expectedPlayer: string,
+  ): Promise<{ player: string; result: ShotResult } | null> {
+    const state = await this.getState(roomId);
+    if (!state || state.status !== 'ACTIVE') return null;
+    if (state.turn.currentPlayer !== expectedPlayer) return null; // already moved on
+    // An empty outcome scores nothing and never grants an extra turn → turn passes.
+    const result = applyShot(state, expectedPlayer, {
+      pocketedCoinIds: [],
+      strikerPocketed: false,
+    });
+    return { player: expectedPlayer, result: await this.commitResult(roomId, result) };
+  },
+
+  /** Persists a freshly applied result, stamps the turn deadline, settles on finish. */
+  async commitResult(roomId: string, result: ApplyShotResult): Promise<ShotResult> {
+    if (result.state.status === 'ACTIVE') result.state.turn.deadline = Date.now() + TURN_MS;
     sessions.set(roomId, result.state);
 
     const data: Record<string, unknown> = { state: result.state as unknown };
@@ -117,11 +156,13 @@ export const gameSession = {
       where: { id: result.state.matchId },
       data: data as Prisma.MatchUpdateInput,
     });
+
+    let settlement: SettlementSummary | null = null;
     if (result.state.status === 'FINISHED') {
       await prisma.gameRoom.update({ where: { id: roomId }, data: { status: 'FINISHED' } });
       // Settle rewards/stats/leaderboard; never let it break the broadcast.
       try {
-        await matchSettlement.settle(result.state);
+        settlement = await matchSettlement.settle(result.state);
       } catch (e) {
         logger.error('match settlement failed', {
           matchId: result.state.matchId,
@@ -130,7 +171,7 @@ export const gameSession = {
       }
       sessions.delete(roomId);
     }
-    return result;
+    return { ...result, settlement };
   },
 
   /** True if the user is a seated player in this room's active match. */
@@ -151,7 +192,10 @@ export const gameSession = {
   },
 
   /** Ends the match in favour of the opponent team when a player abandons. */
-  async forfeit(roomId: string, leaverUserId: string): Promise<GameState | null> {
+  async forfeit(
+    roomId: string,
+    leaverUserId: string,
+  ): Promise<{ state: GameState; settlement: SettlementSummary | null } | null> {
     const state = await this.getState(roomId);
     if (!state || state.status !== 'ACTIVE') return null;
     const leaverTeam = state.players[leaverUserId]?.teamId;
@@ -162,6 +206,7 @@ export const gameSession = {
     finished.status = 'FINISHED';
     finished.winnerTeam = winnerTeam;
     finished.turn.phase = 'FINISHED';
+    finished.turn.deadline = 0;
     sessions.set(roomId, finished);
 
     await prisma.match.update({
@@ -174,8 +219,9 @@ export const gameSession = {
       },
     });
     await prisma.gameRoom.update({ where: { id: roomId }, data: { status: 'FINISHED' } });
+    let settlement: SettlementSummary | null = null;
     try {
-      await matchSettlement.settle(finished);
+      settlement = await matchSettlement.settle(finished);
     } catch (e) {
       logger.error('forfeit settlement failed', {
         matchId: finished.matchId,
@@ -183,6 +229,6 @@ export const gameSession = {
       });
     }
     sessions.delete(roomId);
-    return finished;
+    return { state: finished, settlement };
   },
 };

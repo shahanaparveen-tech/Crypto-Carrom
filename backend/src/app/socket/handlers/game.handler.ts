@@ -2,6 +2,8 @@ import { SOCKET_EVENTS, SOCKET_ROOMS } from '../events';
 import { logger } from '../../logger';
 import type { TypedServer, TypedSocket } from '../types';
 import { gameSession } from '../../../modules/game/service/gameSession';
+import type { GameState } from '../../../modules/game/engine';
+import type { SettlementSummary } from '../../../modules/game/service/matchSettlement';
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : 'Game error');
 
@@ -12,6 +14,64 @@ const GRACE_MS = 45_000;
 const joinedRooms = new Map<string, Set<string>>();
 /** `${roomId}:${userId}` → pending forfeit timer. */
 const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** roomId → pending turn-timeout timer (auto-pass when a player stalls). */
+const turnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+const clearTurnTimer = (roomId: string): void => {
+  const t = turnTimers.get(roomId);
+  if (t) {
+    clearTimeout(t);
+    turnTimers.delete(roomId);
+  }
+};
+
+/** Emits the end-of-match summary (winner + rewards) to the room. */
+const emitGameOver = (
+  io: TypedServer,
+  roomId: string,
+  state: GameState,
+  settlement: SettlementSummary | null | undefined,
+): void => {
+  if (!state.winnerTeam) return;
+  io.to(SOCKET_ROOMS.game(roomId)).emit(SOCKET_EVENTS.GAME_OVER, {
+    roomId,
+    winnerTeam: state.winnerTeam,
+    durationSec: settlement?.durationSec ?? 0,
+    rewards: settlement?.rewards ?? {},
+  });
+};
+
+/** (Re)arms the 20s turn-timeout for the room's current player. */
+const armTurnTimer = (io: TypedServer, roomId: string, state: GameState): void => {
+  clearTurnTimer(roomId);
+  if (state.status !== 'ACTIVE' || !state.turn.deadline) return;
+  const player = state.turn.currentPlayer;
+  const ms = Math.max(0, state.turn.deadline - Date.now()) + 100;
+  const timer = setTimeout(() => {
+    void (async () => {
+      turnTimers.delete(roomId);
+      try {
+        const res = await gameSession.timeoutTurn(roomId, player);
+        if (!res) return;
+        io.to(SOCKET_ROOMS.game(roomId)).emit(SOCKET_EVENTS.GAME_SHOT, {
+          roomId,
+          shooter: res.player,
+          inputs: undefined, // no replay — a timed-out turn just passes
+          events: res.result.events,
+          state: res.result.state,
+        });
+        if (res.result.state.status === 'FINISHED') {
+          emitGameOver(io, roomId, res.result.state, res.result.settlement);
+        } else {
+          armTurnTimer(io, roomId, res.result.state);
+        }
+      } catch (e) {
+        logger.debug('turn timeout failed', { roomId, error: errMsg(e) });
+      }
+    })();
+  }, ms);
+  turnTimers.set(roomId, timer);
+};
 
 /**
  * Authoritative game-session transport. Validates membership/turn server-side
@@ -58,6 +118,7 @@ export const registerGameHandlers = (io: TypedServer, socket: TypedSocket): void
       if (allReady) {
         const state = await gameSession.startMatch(roomId);
         io.to(SOCKET_ROOMS.game(roomId)).emit(SOCKET_EVENTS.GAME_START, { roomId, state });
+        armTurnTimer(io, roomId, state);
       }
       ack?.({ success: true });
     } catch (e) {
@@ -67,14 +128,20 @@ export const registerGameHandlers = (io: TypedServer, socket: TypedSocket): void
 
   socket.on(SOCKET_EVENTS.GAME_SHOT, async ({ roomId, outcome, inputs }, ack) => {
     try {
-      const { state, events } = await gameSession.applyPlayerShot(roomId, userId, outcome);
+      const result = await gameSession.applyPlayerShot(roomId, userId, outcome);
       io.to(SOCKET_ROOMS.game(roomId)).emit(SOCKET_EVENTS.GAME_SHOT, {
         roomId,
         shooter: userId,
         inputs,
-        events,
-        state,
+        events: result.events,
+        state: result.state,
       });
+      if (result.state.status === 'FINISHED') {
+        clearTurnTimer(roomId);
+        emitGameOver(io, roomId, result.state, result.settlement);
+      } else {
+        armTurnTimer(io, roomId, result.state);
+      }
       ack?.({ success: true });
     } catch (e) {
       logger.debug('game:shot rejected', { userId, roomId, error: errMsg(e) });
@@ -112,11 +179,14 @@ export const registerGameHandlers = (io: TypedServer, socket: TypedSocket): void
         const timer = setTimeout(async () => {
           graceTimers.delete(key);
           const finished = await gameSession.forfeit(roomId, userId);
-          if (finished)
+          if (finished) {
+            clearTurnTimer(roomId);
             io.to(SOCKET_ROOMS.game(roomId)).emit(SOCKET_EVENTS.GAME_STATE, {
               roomId,
-              state: finished,
+              state: finished.state,
             });
+            emitGameOver(io, roomId, finished.state, finished.settlement);
+          }
         }, GRACE_MS);
         graceTimers.set(key, timer);
       })();

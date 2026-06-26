@@ -24,6 +24,8 @@ export interface Coin {
 
 export interface PlayerState {
   userId: string;
+  /** Display name (falls back to userId when unknown). */
+  username: string;
   /** Seat index in the turn rotation (0..3). */
   seat: number;
   teamId: TeamId;
@@ -58,6 +60,8 @@ export interface GameState {
     turnNumber: number;
     extraTurn: boolean;
     phase: TurnPhase;
+    /** Epoch ms by which the current player must shoot (0 = no timer). */
+    deadline: number;
   };
   queen: {
     status: QueenStatus;

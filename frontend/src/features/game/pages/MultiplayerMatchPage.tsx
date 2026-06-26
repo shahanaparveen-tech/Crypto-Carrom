@@ -3,15 +3,17 @@ import { LogOut, Coins, WifiOff } from 'lucide-react';
 
 import { Avatar, Spinner } from '@shared/components';
 import { ROUTES } from '@app/config/routes.constants';
+import { formatCoins } from '@shared/utils/format';
 import { useAuthState } from '@features/auth/hooks';
 import { NetGameCanvas } from '../components/NetGameCanvas';
 import { WinnerModal } from '../components/WinnerModal';
+import { TurnTimer } from '../components/TurnTimer';
 import { useNetMatch } from '../net/useNetMatch';
 
 export const MultiplayerMatchPage = (): JSX.Element => {
   const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
-  const { myId, state, lastShot, pausedUser, sendShot, sendAim, liveAim } = useNetMatch(
+  const { myId, state, lastShot, pausedUser, gameOver, sendShot, sendAim, liveAim } = useNetMatch(
     roomId ?? null,
   );
 
@@ -21,24 +23,60 @@ export const MultiplayerMatchPage = (): JSX.Element => {
   const myScore = state?.teams[myTeam].score ?? 0;
   const oppScore = state?.teams[oppTeam].score ?? 0;
 
+  const oppId = state?.order.find((id) => id !== myId);
+  const myName = state?.players[myId]?.username ?? user?.username ?? 'You';
+  const oppName = (oppId && state?.players[oppId]?.username) || 'Opponent';
+  const myTurn = state?.turn.currentPlayer === myId;
+
   const finished = state?.status === 'FINISHED' && state.winnerTeam !== null;
   const iWon = finished && state?.winnerTeam === myTeam;
-  const winnerTeamId = state?.winnerTeam ?? myTeam;
-  const winnerId = state?.teams[winnerTeamId].members.join(', ') ?? '';
+  const winnerName = iWon ? myName : oppName;
+  const reward = (gameOver && gameOver.rewards[myId]) || null;
+
   // Each team owns one colour; coins render white→blue puck, black→dark puck.
   const swatch = (team: 'A' | 'B'): string =>
     state?.teams[team].color === 'WHITE' ? '#29a3e6' : '#2b2f38';
+  const colorName = (team: 'A' | 'B'): string =>
+    state?.teams[team].color === 'WHITE' ? 'White' : 'Black';
 
   const banner = (): string => {
     if (!state) return 'Connecting…';
-    if (state.status === 'FINISHED') {
-      return state.winnerTeam === myTeam ? '🎉 You win!' : 'You lost';
-    }
+    if (state.status === 'FINISHED') return iWon ? '🎉 You win!' : 'You lost';
     if (state.queen.status === 'PENDING_COVER' && state.queen.claimedBy === myTeam) {
       return '👑 Cover the Queen!';
     }
-    return state.turn.currentPlayer === myId ? 'Your turn' : "Opponent's turn";
+    if (myTurn) return 'Your Turn';
+    const name = state.players[state.turn.currentPlayer]?.username ?? 'Opponent';
+    return `${name}'s Turn`;
   };
+
+  const PlayerCard = ({
+    name,
+    team,
+    active,
+    you,
+  }: {
+    name: string;
+    team: 'A' | 'B';
+    active: boolean;
+    you?: boolean;
+  }): JSX.Element => (
+    <div
+      className={`flex flex-col items-center rounded-2xl p-1 transition ${active ? 'ring-2 ring-lime-400' : ''}`}
+    >
+      <Avatar name={name} size={56} className="!rounded-xl border-[3px]" />
+      <span className="mt-1 max-w-[88px] truncate text-[11px] font-semibold text-white/90">
+        {you ? `${name} (You)` : name}
+      </span>
+      <span className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-white/70">
+        <span
+          className="h-2.5 w-2.5 rounded-full ring-1 ring-white/40"
+          style={{ background: swatch(team) }}
+        />
+        {colorName(team)}
+      </span>
+    </div>
+  );
 
   return (
     <div
@@ -49,42 +87,21 @@ export const MultiplayerMatchPage = (): JSX.Element => {
     >
       {/* Players */}
       <div className="flex w-full max-w-xl items-start justify-between gap-2">
-        <div
-          className={`flex flex-col items-center rounded-2xl p-1 ${state?.turn.currentPlayer === myId ? 'ring-2 ring-lime-400' : ''}`}
-        >
-          <Avatar name="You" size={56} className="!rounded-xl border-[3px]" />
-          <span className="mt-1 text-[11px] font-semibold text-white/85">You</span>
-          <span className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-white/70">
-            <span
-              className="h-2.5 w-2.5 rounded-full ring-1 ring-white/40"
-              style={{ background: swatch(myTeam) }}
-            />
-            your coins
-          </span>
-        </div>
+        <PlayerCard name={myName} team={myTeam} active={!!myTurn} you />
 
         <div className="flex flex-1 flex-col items-center pt-1">
           <span className="flex items-center gap-1.5 font-display text-xl font-extrabold text-white drop-shadow">
             <Coins size={18} className="text-gold-light" /> {state?.matchType?.toUpperCase() ?? '…'}
           </span>
-          <span className="mt-1 rounded-lg bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow">
-            {banner()}
-          </span>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="rounded-lg bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow">
+              {banner()}
+            </span>
+            {state?.status === 'ACTIVE' && <TurnTimer deadline={state.turn.deadline} />}
+          </div>
         </div>
 
-        <div
-          className={`flex flex-col items-center rounded-2xl p-1 ${state && state.turn.currentPlayer !== myId ? 'ring-2 ring-lime-400' : ''}`}
-        >
-          <Avatar name="Opponent" size={56} className="!rounded-xl border-[3px]" />
-          <span className="mt-1 text-[11px] font-semibold text-white/85">Opponent</span>
-          <span className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-white/70">
-            <span
-              className="h-2.5 w-2.5 rounded-full ring-1 ring-white/40"
-              style={{ background: swatch(oppTeam) }}
-            />
-            their coins
-          </span>
-        </div>
+        <PlayerCard name={oppName} team={oppTeam} active={!!state && !myTurn} />
       </div>
 
       {/* Scores */}
@@ -129,11 +146,15 @@ export const MultiplayerMatchPage = (): JSX.Element => {
       {finished && (
         <WinnerModal
           won={!!iWon}
-          winnerName={iWon ? (user?.username ?? 'You') : 'Opponent'}
-          winnerId={winnerId}
+          winnerName={winnerName}
           myScore={myScore}
           oppScore={oppScore}
-          onLeave={() => navigate(ROUTES.LOBBY)}
+          coinsEarned={formatCoins(reward?.coins ?? '0')}
+          xpEarned={reward?.xp ?? 0}
+          durationSec={gameOver?.durationSec ?? 0}
+          onPlayAgain={() => navigate(ROUTES.FRIENDS)}
+          onHome={() => navigate(ROUTES.HOME)}
+          onStats={() => navigate(ROUTES.PROFILE)}
         />
       )}
     </div>

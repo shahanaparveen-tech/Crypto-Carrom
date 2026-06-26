@@ -28,6 +28,15 @@ export interface ServerToClientEvents {
     state: GameState;
   }) => void;
   'game:aim': (payload: { roomId: string; shooter: string; aim: AimPayload }) => void;
+  'game:over': (payload: {
+    roomId: string;
+    winnerTeam: 'A' | 'B';
+    durationSec: number;
+    rewards: Record<
+      string,
+      { result: 'WIN' | 'LOSS'; coins: string; xp: number; ratingDelta: number }
+    >;
+  }) => void;
   'game:paused': (payload: { roomId: string; userId: string; graceMs: number }) => void;
   'game:resumed': (payload: { roomId: string; userId: string }) => void;
 }

@@ -13,10 +13,17 @@ export const createInitialState = (
   mode: string,
   matchType: MatchType,
   seats: string[],
+  names: Record<string, string> = {},
 ): GameState => {
   const players: Record<string, PlayerState> = {};
   seats.forEach((userId, seat) => {
-    players[userId] = { userId, seat, teamId: teamOfSeat(seat), fouls: 0 };
+    players[userId] = {
+      userId,
+      username: names[userId] ?? userId,
+      seat,
+      teamId: teamOfSeat(seat),
+      fouls: 0,
+    };
   });
 
   const mkTeam = (id: TeamId, color: 'WHITE' | 'BLACK'): TeamState => ({
@@ -38,7 +45,13 @@ export const createInitialState = (
     players,
     teams: { A: mkTeam('A', 'WHITE'), B: mkTeam('B', 'BLACK') },
     coins: createCoinLayout(),
-    turn: { currentPlayer: seats[0]!, turnNumber: 1, extraTurn: false, phase: 'AIMING' },
+    turn: {
+      currentPlayer: seats[0]!,
+      turnNumber: 1,
+      extraTurn: false,
+      phase: 'AIMING',
+      deadline: 0,
+    },
     queen: { status: 'ON_BOARD', owner: null, claimedBy: null, onBoard: true },
     winnerTeam: null,
   };

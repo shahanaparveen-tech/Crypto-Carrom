@@ -37,6 +37,32 @@ export const drawPiece = (g: Graphics, p: Piece): void => {
   }
 };
 
+/**
+ * Striker guide rails on all four sides — identical thick, glowing red lines
+ * with gold end caps. Drawn on both the networked and single-player boards.
+ */
+export const drawGuideRails = (g: Graphics): void => {
+  const { SIZE } = BOARD;
+  const a = BOARD.STRIKER_MIN_X;
+  const b = BOARD.STRIKER_MAX_X;
+
+  const cap = (cx: number, cy: number): void => {
+    g.circle(cx, cy, 9).fill({ color: COLORS.cornerMark, alpha: 0.35 });
+    g.circle(cx, cy, 6).fill(COLORS.cornerMark).stroke({ width: 1.5, color: 0x7a5410 });
+  };
+  const rail = (x1: number, y1: number, x2: number, y2: number): void => {
+    // Soft glow underlay → crisp bright line on top.
+    g.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: 9, color: COLORS.queen, alpha: 0.2 });
+    g.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: 5, color: COLORS.queen, alpha: 0.95 });
+    g.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: 2, color: 0xff8a7a, alpha: 0.9 });
+    cap(x1, y1);
+    cap(x2, y2);
+  };
+
+  for (const y of [108, SIZE - 108]) rail(a, y, b, y); // bottom + top
+  for (const x of [108, SIZE - 108]) rail(x, a, x, b); // left + right
+};
+
 /** Draws the static board (frame, pockets, mandala, baselines). */
 export const drawBoard = (g: Graphics): void => {
   const { SIZE, CENTER } = BOARD;
@@ -78,19 +104,7 @@ export const drawBoard = (g: Graphics): void => {
   }
   g.circle(CENTER, CENTER, 20).stroke({ width: 2, color: COLORS.queenEdge });
 
-  // Striker guide rails on all four sides (identical design).
-  const a = BOARD.STRIKER_MIN_X;
-  const b = BOARD.STRIKER_MAX_X;
-  for (const y of [108, SIZE - 108]) {
-    g.moveTo(a, y).lineTo(b, y).stroke({ width: 3, color: COLORS.queen });
-    g.circle(a, y, 7).fill(COLORS.cornerMark);
-    g.circle(b, y, 7).fill(COLORS.cornerMark);
-  }
-  for (const x of [108, SIZE - 108]) {
-    g.moveTo(x, a).lineTo(x, b).stroke({ width: 3, color: COLORS.queen });
-    g.circle(x, a, 7).fill(COLORS.cornerMark);
-    g.circle(x, b, 7).fill(COLORS.cornerMark);
-  }
+  drawGuideRails(g);
 
   for (const pk of POCKETS) {
     g.circle(pk.x, pk.y, BOARD.POCKET_R).fill(COLORS.pocket).stroke({ width: 3, color: 0x7a5410 });

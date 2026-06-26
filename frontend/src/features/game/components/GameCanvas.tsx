@@ -16,6 +16,7 @@ import {
   type BoardState,
   type Piece,
 } from '../engine';
+import { drawGuideRails } from './boardDraw';
 import { computeAiShot, thinkDelay, type Difficulty } from '../ai/aiPlayer';
 
 export type QueenStatus = 'ON_BOARD' | 'PENDING_COVER' | 'SECURED';
@@ -142,19 +143,7 @@ const drawBoard = (g: Graphics): void => {
   }
   g.circle(CENTER, CENTER, 20).stroke({ width: 2, color: COLORS.queenEdge });
 
-  // Striker guide rails on all four sides (identical design).
-  const a = BOARD.STRIKER_MIN_X;
-  const b = BOARD.STRIKER_MAX_X;
-  for (const y of [108, SIZE - 108]) {
-    g.moveTo(a, y).lineTo(b, y).stroke({ width: 3, color: COLORS.queen });
-    g.circle(a, y, 7).fill(COLORS.cornerMark);
-    g.circle(b, y, 7).fill(COLORS.cornerMark);
-  }
-  for (const x of [108, SIZE - 108]) {
-    g.moveTo(x, a).lineTo(x, b).stroke({ width: 3, color: COLORS.queen });
-    g.circle(x, a, 7).fill(COLORS.cornerMark);
-    g.circle(x, b, 7).fill(COLORS.cornerMark);
-  }
+  drawGuideRails(g);
 
   for (const pk of POCKETS) {
     g.circle(pk.x, pk.y, BOARD.POCKET_R).fill(COLORS.pocket).stroke({ width: 3, color: 0x7a5410 });
