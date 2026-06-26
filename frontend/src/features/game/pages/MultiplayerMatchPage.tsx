@@ -25,7 +25,8 @@ export const MultiplayerMatchPage = (): JSX.Element => {
 
   const oppId = state?.order.find((id) => id !== myId);
   const myName = state?.players[myId]?.username ?? user?.username ?? 'You';
-  const oppName = (oppId && state?.players[oppId]?.username) || 'Opponent';
+  // Prefer the opponent's username; fall back to their id so it's always shown.
+  const oppName = (oppId && (state?.players[oppId]?.username || oppId)) || 'Opponent';
   const myTurn = state?.turn.currentPlayer === myId;
 
   const finished = state?.status === 'FINISHED' && state.winnerTeam !== null;
@@ -52,11 +53,13 @@ export const MultiplayerMatchPage = (): JSX.Element => {
 
   const PlayerCard = ({
     name,
+    id,
     team,
     active,
     you,
   }: {
     name: string;
+    id?: string;
     team: 'A' | 'B';
     active: boolean;
     you?: boolean;
@@ -65,9 +68,14 @@ export const MultiplayerMatchPage = (): JSX.Element => {
       className={`flex flex-col items-center rounded-2xl p-1 transition ${active ? 'ring-2 ring-lime-400' : ''}`}
     >
       <Avatar name={name} size={56} className="!rounded-xl border-[3px]" />
-      <span className="mt-1 max-w-[88px] truncate text-[11px] font-semibold text-white/90">
+      <span className="mt-1 max-w-[96px] truncate text-[11px] font-semibold text-white/90">
         {you ? `${name} (You)` : name}
       </span>
+      {id && id !== name && (
+        <span className="max-w-[96px] truncate text-[9px] text-white/45" title={id}>
+          id: {id}
+        </span>
+      )}
       <span className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-white/70">
         <span
           className="h-2.5 w-2.5 rounded-full ring-1 ring-white/40"
@@ -87,7 +95,7 @@ export const MultiplayerMatchPage = (): JSX.Element => {
     >
       {/* Players */}
       <div className="flex w-full max-w-xl items-start justify-between gap-2">
-        <PlayerCard name={myName} team={myTeam} active={!!myTurn} you />
+        <PlayerCard name={myName} id={myId} team={myTeam} active={!!myTurn} you />
 
         <div className="flex flex-1 flex-col items-center pt-1">
           <span className="flex items-center gap-1.5 font-display text-xl font-extrabold text-white drop-shadow">
@@ -97,11 +105,16 @@ export const MultiplayerMatchPage = (): JSX.Element => {
             <span className="rounded-lg bg-black/55 px-3 py-1.5 text-center text-sm font-semibold text-white shadow">
               {banner()}
             </span>
-            {state?.status === 'ACTIVE' && <TurnTimer deadline={state.turn.deadline} />}
+            {state?.status === 'ACTIVE' && (
+              <TurnTimer
+                deadline={state.turn.deadline ?? 0}
+                turnKey={`${state.turn.currentPlayer}#${state.turn.turnNumber}`}
+              />
+            )}
           </div>
         </div>
 
-        <PlayerCard name={oppName} team={oppTeam} active={!!state && !myTurn} />
+        <PlayerCard name={oppName} id={oppId} team={oppTeam} active={!!state && !myTurn} />
       </div>
 
       {/* Scores */}

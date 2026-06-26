@@ -16,7 +16,6 @@ import {
   type BoardState,
   type Piece,
 } from '../engine';
-import { cn } from '@shared/utils/cn';
 import { drawBoard, drawPiece } from './boardDraw';
 import type {
   AimPayload,
@@ -36,6 +35,17 @@ interface AimState {
 }
 const emptyAim: AimState = { active: false, dirX: 0, dirY: 0, power: 0 };
 const clampT = (t: number): number => Math.max(BOARD.STRIKER_MIN, Math.min(BOARD.STRIKER_MAX, t));
+
+/**
+ * Stage rotation that brings each side to the *bottom* of the screen, so every
+ * player sees their own striker at the bottom (desktop "egocentric" view).
+ */
+const VIEW_ROTATION: Record<Side, number> = {
+  [SIDE.BOTTOM]: 0,
+  [SIDE.TOP]: Math.PI,
+  [SIDE.LEFT]: -Math.PI / 2,
+  [SIDE.RIGHT]: Math.PI / 2,
+};
 
 interface NetGameCanvasProps {
   state: NetGameState | null;
@@ -99,14 +109,25 @@ export const NetGameCanvas = ({
     let simFrames = 0;
     let restFrames = 0; // consecutive frames the board has been near-rest
     let lastAimSent = 0; // throttle timestamp for live-aim broadcasts
+    let viewRotation = 0; // stage rotation so my side renders at the bottom
     const app = new Application();
     const boardG = new Graphics();
     const dynG = new Graphics();
 
+    const mySide = (): Side => sideForSeat(stateRef.current?.players[myId]?.seat ?? 0);
+
     const toBoard = (e: PointerEvent): { x: number; y: number } => {
       const rect = app.canvas.getBoundingClientRect();
       const scale = BOARD.SIZE / rect.width;
-      return { x: (e.clientX - rect.left) * scale, y: (e.clientY - rect.top) * scale };
+      const rx = (e.clientX - rect.left) * scale;
+      const ry = (e.clientY - rect.top) * scale;
+      // Undo the view rotation so pointer coords map back to absolute board space.
+      const c = BOARD.SIZE / 2;
+      const dx = rx - c;
+      const dy = ry - c;
+      const cos = Math.cos(-viewRotation);
+      const sin = Math.sin(-viewRotation);
+      return { x: c + dx * cos - dy * sin, y: c + dx * sin + dy * cos };
     };
 
     const isMyTurn = (): boolean =>
@@ -266,6 +287,9 @@ export const NetGameCanvas = ({
     };
 
     const redraw = (): void => {
+      // Keep the board rotated so my own side stays at the bottom of the screen.
+      viewRotation = VIEW_ROTATION[mySide()];
+      app.stage.rotation = viewRotation;
       dynG.clear();
       const aim = aimRef.current;
       const st = stateRef.current;
@@ -404,6 +428,9 @@ export const NetGameCanvas = ({
         }
         ready = true;
         canvasEl = app.canvas;
+        // Rotate the whole stage around the board centre (egocentric view).
+        app.stage.pivot.set(BOARD.SIZE / 2, BOARD.SIZE / 2);
+        app.stage.position.set(BOARD.SIZE / 2, BOARD.SIZE / 2);
         drawBoard(boardG);
         app.stage.addChild(boardG);
         app.stage.addChild(dynG);
@@ -431,15 +458,21 @@ export const NetGameCanvas = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myId]);
 
-  // Slide the striker along the current player's baseline (axis depends on side).
+  // Each player views their own side at the bottom, so the striker slides
+  // horizontally for everyone. Top/right seats are rotated 180°/90°, so their
+  // slider direction is inverted to keep "drag right = move right on screen".
+  const seatSide = state ? sideForSeat(state.players[myId]?.seat ?? 0) : SIDE.BOTTOM;
+  const invertSlider = seatSide === SIDE.TOP || seatSide === SIDE.RIGHT;
+
   const onSlider = (value: number): void => {
     const st = stateRef.current;
     if (!st || st.turn.currentPlayer !== myId || phaseRef.current !== 'aim') return;
-    const t = clampT(value);
-    setSliderT(t);
+    const v = clampT(value);
+    setSliderT(v);
+    const absT = invertSlider ? BOARD.STRIKER_MIN + BOARD.STRIKER_MAX - v : v;
     const s = getStriker(boardRef.current);
     if (!s.pocketed) {
-      const pos = strikerSpot(sideForSeat(st.players[myId]?.seat ?? 0), t);
+      const pos = strikerSpot(seatSide, absT);
       s.x = pos.x;
       s.y = pos.y;
       // Let the opponent see the striker slide along the baseline (no aim line).
@@ -447,48 +480,20 @@ export const NetGameCanvas = ({
     }
   };
 
-  const mySide = state ? sideForSeat(state.players[myId]?.seat ?? 0) : SIDE.BOTTOM;
-  const vertical = mySide === SIDE.LEFT || mySide === SIDE.RIGHT;
-
-  // The striker rail sits on the current player's side and is oriented to it.
-  const layout =
-    mySide === SIDE.TOP
-      ? 'flex-col-reverse'
-      : mySide === SIDE.LEFT
-        ? 'flex-row'
-        : mySide === SIDE.RIGHT
-          ? 'flex-row-reverse'
-          : 'flex-col';
-
-  const railTrack = (
-    <div
-      className={cn(
-        'rounded-full border border-gold/30 bg-gradient-to-b from-wood-light/80 to-wood-dark/80 shadow-inner',
-        vertical ? 'flex items-center justify-center px-2 py-3' : 'w-full max-w-[420px] px-4 py-3',
-      )}
-    >
-      <input
-        type="range"
-        min={BOARD.STRIKER_MIN}
-        max={BOARD.STRIKER_MAX}
-        value={sliderT}
-        onChange={(e) => onSlider(Number(e.target.value))}
-        aria-label="Position striker"
-        className="accent-gold"
-        style={vertical ? { writingMode: 'vertical-lr', height: 240 } : { width: '100%' }}
-      />
-    </div>
-  );
-
   return (
-    <div
-      className={cn('mx-auto flex w-full max-w-[600px] items-center justify-center gap-3', layout)}
-    >
-      <div
-        ref={hostRef}
-        className="w-full max-w-[540px] overflow-hidden rounded-3xl shadow-panel"
-      />
-      {railTrack}
+    <div className="mx-auto flex w-full max-w-[560px] flex-col items-center">
+      <div ref={hostRef} className="w-full overflow-hidden rounded-3xl shadow-panel" />
+      <div className="mt-4 w-full max-w-[420px] rounded-full border border-gold/30 bg-gradient-to-b from-wood-light/80 to-wood-dark/80 px-4 py-3 shadow-inner">
+        <input
+          type="range"
+          min={BOARD.STRIKER_MIN}
+          max={BOARD.STRIKER_MAX}
+          value={sliderT}
+          onChange={(e) => onSlider(Number(e.target.value))}
+          aria-label="Position striker"
+          className="w-full accent-gold"
+        />
+      </div>
     </div>
   );
 };

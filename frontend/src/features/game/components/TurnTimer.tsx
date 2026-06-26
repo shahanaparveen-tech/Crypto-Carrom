@@ -1,30 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface TurnTimerProps {
-  /** Epoch ms the current turn ends (0 = inactive). Server-authoritative. */
+  /** Epoch ms the current turn ends (server-authoritative; 0/absent = none). */
   deadline: number;
-  total?: number; // seconds in a full turn (for the ring sweep)
+  /** Changes whenever the turn changes — drives the local fallback reset. */
+  turnKey: string;
+  total?: number; // seconds in a full turn
 }
 
 const R = 16;
 const C = 2 * Math.PI * R;
 
 /**
- * Server-synced countdown ring. Reads the authoritative `deadline` so every
- * client shows the same remaining time; turns amber then red as it runs out.
+ * Turn countdown ring. Prefers the server `deadline` (synced across clients);
+ * if the server didn't supply one, falls back to a local 20s countdown that
+ * resets whenever `turnKey` changes — so the timer is always visible.
  */
-export const TurnTimer = ({ deadline, total = 20 }: TurnTimerProps): JSX.Element | null => {
+export const TurnTimer = ({ deadline, turnKey, total = 20 }: TurnTimerProps): JSX.Element => {
   const [now, setNow] = useState(() => Date.now());
+  const localDeadlineRef = useRef(0);
+
+  // Reset the local fallback at the start of each turn.
+  useEffect(() => {
+    localDeadlineRef.current = Date.now() + total * 1000;
+    setNow(Date.now());
+  }, [turnKey, total]);
 
   useEffect(() => {
-    if (!deadline) return;
     const id = window.setInterval(() => setNow(Date.now()), 200);
     return () => window.clearInterval(id);
-  }, [deadline]);
+  }, []);
 
-  if (!deadline) return null;
-
-  const msLeft = Math.max(0, deadline - now);
+  const effective = deadline > 0 ? deadline : localDeadlineRef.current;
+  const msLeft = Math.max(0, effective - now);
   const secs = Math.ceil(msLeft / 1000);
   const frac = Math.max(0, Math.min(1, msLeft / (total * 1000)));
   const color = secs <= 5 ? '#f43f5e' : secs <= 10 ? '#f59e0b' : '#a3e635';
