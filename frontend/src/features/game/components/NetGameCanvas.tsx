@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Application, Graphics } from 'pixi.js';
 
 import {
@@ -19,7 +19,9 @@ import {
 import { cn } from '@shared/utils/cn';
 import { drawBoard, drawPiece } from './boardDraw';
 import type {
+  AimPayload,
   IncomingShot,
+  LiveAim,
   NetEvent,
   NetGameState,
   ShotInputs,
@@ -40,6 +42,8 @@ interface NetGameCanvasProps {
   myId: string;
   lastShot: IncomingShot | null;
   onLocalShot: (outcome: ShotOutcome, inputs: ShotInputs) => void;
+  liveAim: MutableRefObject<LiveAim | null>;
+  sendAim: (aim: AimPayload) => void;
 }
 
 /**
@@ -54,8 +58,12 @@ export const NetGameCanvas = ({
   myId,
   lastShot,
   onLocalShot,
+  liveAim,
+  sendAim,
 }: NetGameCanvasProps): JSX.Element => {
   const hostRef = useRef<HTMLDivElement>(null);
+  const sendAimRef = useRef(sendAim);
+  sendAimRef.current = sendAim;
   const boardRef = useRef<BoardState>(createBoardState());
   const aimRef = useRef<AimState>({ ...emptyAim });
   const phaseRef = useRef<'aim' | 'sim'>('aim');
@@ -90,6 +98,7 @@ export const NetGameCanvas = ({
     let canvasEl: HTMLCanvasElement | null = null;
     let simFrames = 0;
     let restFrames = 0; // consecutive frames the board has been near-rest
+    let lastAimSent = 0; // throttle timestamp for live-aim broadcasts
     const app = new Application();
     const boardG = new Graphics();
     const dynG = new Graphics();
@@ -223,19 +232,37 @@ export const NetGameCanvas = ({
       }
     };
 
+    const drawAimLine = (sx: number, sy: number, dx: number, dy: number, power: number): void => {
+      const len = power * 140;
+      dynG
+        .moveTo(sx, sy)
+        .lineTo(sx + dx * len, sy + dy * len)
+        .stroke({ width: 4, color: COLORS.aim, alpha: 0.55 });
+      dynG.circle(sx + dx * len, sy + dy * len, 6).fill({ color: COLORS.aim, alpha: 0.85 });
+    };
+
     const redraw = (): void => {
       dynG.clear();
       const aim = aimRef.current;
+      const st = stateRef.current;
+      const oppTurn = !!st && st.status === 'ACTIVE' && st.turn.currentPlayer !== myId;
+      const la = liveAim.current;
+
       if (aim.active && phaseRef.current === 'aim') {
+        // My own live aim.
         const s = getStriker(boardRef.current);
-        const len = aim.power * 140;
-        dynG
-          .moveTo(s.x, s.y)
-          .lineTo(s.x + aim.dirX * len, s.y + aim.dirY * len)
-          .stroke({ width: 4, color: COLORS.aim, alpha: 0.55 });
-        dynG
-          .circle(s.x + aim.dirX * len, s.y + aim.dirY * len, 6)
-          .fill({ color: COLORS.aim, alpha: 0.85 });
+        if (aim.power > 0.02) drawAimLine(s.x, s.y, aim.dirX, aim.dirY, aim.power);
+      } else if (
+        oppTurn &&
+        la &&
+        la.shooter === st!.turn.currentPlayer &&
+        phaseRef.current === 'aim'
+      ) {
+        // Mirror the opponent's striker + aiming line in real time.
+        const s = getStriker(boardRef.current);
+        s.x = la.strikerX;
+        s.y = la.strikerY;
+        if (la.active && la.power > 0.02) drawAimLine(s.x, s.y, la.dirX, la.dirY, la.power);
       }
       for (const p of boardRef.current.pieces) if (!p.pocketed) drawPiece(dynG, p);
     };
@@ -276,10 +303,28 @@ export const NetGameCanvas = ({
 
     const canAim = (): boolean => isMyTurn() && phaseRef.current === 'aim' && !waitingRef.current;
 
+    /** Broadcast my striker + aim so the opponent sees it live (throttled). */
+    const broadcastAim = (active: boolean, force = false): void => {
+      const now = performance.now();
+      if (!force && now - lastAimSent < 40) return;
+      lastAimSent = now;
+      const s = getStriker(boardRef.current);
+      const a = aimRef.current;
+      sendAimRef.current({
+        strikerX: s.x,
+        strikerY: s.y,
+        dirX: a.dirX,
+        dirY: a.dirY,
+        power: a.power,
+        active,
+      });
+    };
+
     const onPointerDown = (e: PointerEvent): void => {
       if (!canAim()) return;
       e.preventDefault();
       aimRef.current = { active: true, dirX: 0, dirY: 0, power: 0 };
+      broadcastAim(true, true);
     };
     const onPointerMove = (e: PointerEvent): void => {
       if (!aimRef.current.active) return;
@@ -295,11 +340,15 @@ export const NetGameCanvas = ({
         dirY: len > 0 ? -dy / len : 0,
         power,
       };
+      broadcastAim(true);
     };
     const onPointerUp = (): void => {
       const aim = aimRef.current;
       aimRef.current = { ...emptyAim };
-      if (!canAim() || aim.power <= 0.05) return;
+      if (!canAim() || aim.power <= 0.05) {
+        if (isMyTurn()) broadcastAim(false, true); // cancelled aim → clear the line
+        return;
+      }
       const s = getStriker(boardRef.current);
       inputsRef.current = {
         strikerX: s.x,
@@ -369,6 +418,8 @@ export const NetGameCanvas = ({
       const pos = strikerSpot(sideForSeat(st.players[myId]?.seat ?? 0), t);
       s.x = pos.x;
       s.y = pos.y;
+      // Let the opponent see the striker slide along the baseline (no aim line).
+      sendAim({ strikerX: s.x, strikerY: s.y, dirX: 0, dirY: 0, power: 0, active: false });
     }
   };
 

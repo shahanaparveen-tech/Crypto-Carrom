@@ -3,18 +3,28 @@ import { LogOut, Coins, WifiOff } from 'lucide-react';
 
 import { Avatar, Spinner } from '@shared/components';
 import { ROUTES } from '@app/config/routes.constants';
+import { useAuthState } from '@features/auth/hooks';
 import { NetGameCanvas } from '../components/NetGameCanvas';
+import { WinnerModal } from '../components/WinnerModal';
 import { useNetMatch } from '../net/useNetMatch';
 
 export const MultiplayerMatchPage = (): JSX.Element => {
   const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
-  const { myId, state, lastShot, pausedUser, sendShot } = useNetMatch(roomId ?? null);
+  const { myId, state, lastShot, pausedUser, sendShot, sendAim, liveAim } = useNetMatch(
+    roomId ?? null,
+  );
 
+  const { user } = useAuthState();
   const myTeam = state?.players[myId]?.teamId ?? 'A';
   const oppTeam = myTeam === 'A' ? 'B' : 'A';
   const myScore = state?.teams[myTeam].score ?? 0;
   const oppScore = state?.teams[oppTeam].score ?? 0;
+
+  const finished = state?.status === 'FINISHED' && state.winnerTeam !== null;
+  const iWon = finished && state?.winnerTeam === myTeam;
+  const winnerTeamId = state?.winnerTeam ?? myTeam;
+  const winnerId = state?.teams[winnerTeamId].members.join(', ') ?? '';
   // Each team owns one colour; coins render white→blue puck, black→dark puck.
   const swatch = (team: 'A' | 'B'): string =>
     state?.teams[team].color === 'WHITE' ? '#29a3e6' : '#2b2f38';
@@ -88,7 +98,14 @@ export const MultiplayerMatchPage = (): JSX.Element => {
 
       {/* Board */}
       <div className="relative mt-3 w-full">
-        <NetGameCanvas state={state} myId={myId} lastShot={lastShot} onLocalShot={sendShot} />
+        <NetGameCanvas
+          state={state}
+          myId={myId}
+          lastShot={lastShot}
+          onLocalShot={sendShot}
+          liveAim={liveAim}
+          sendAim={sendAim}
+        />
 
         {pausedUser && state?.status === 'ACTIVE' && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-black/70 backdrop-blur-sm">
@@ -108,6 +125,17 @@ export const MultiplayerMatchPage = (): JSX.Element => {
       >
         <LogOut size={16} /> Leave match
       </button>
+
+      {finished && (
+        <WinnerModal
+          won={!!iWon}
+          winnerName={iWon ? (user?.username ?? 'You') : 'Opponent'}
+          winnerId={winnerId}
+          myScore={myScore}
+          oppScore={oppScore}
+          onLeave={() => navigate(ROUTES.LOBBY)}
+        />
+      )}
     </div>
   );
 };

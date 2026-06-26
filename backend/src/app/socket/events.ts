@@ -27,6 +27,7 @@ export const SOCKET_EVENTS = {
   GAME_READY: 'game:ready',
   GAME_START: 'game:start',
   GAME_SHOT: 'game:shot',
+  GAME_AIM: 'game:aim',
   GAME_STATE: 'game:state',
   GAME_PAUSED: 'game:paused',
   GAME_RESUMED: 'game:resumed',

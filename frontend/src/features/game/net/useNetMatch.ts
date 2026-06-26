@@ -16,6 +16,19 @@ export interface ShotOutcome {
   strikerPocketed: boolean;
 }
 
+/** Live, ephemeral aim broadcast while a player lines up a shot. */
+export interface AimPayload {
+  strikerX: number;
+  strikerY: number;
+  dirX: number;
+  dirY: number;
+  power: number;
+  active: boolean; // true while dragging an aim line; false = striker moved only
+}
+export interface LiveAim extends AimPayload {
+  shooter: string;
+}
+
 export type NetCoin = {
   id: string;
   color: 'WHITE' | 'BLACK' | 'QUEEN';
@@ -66,6 +79,7 @@ export const useNetMatch = (roomId: string | null) => {
   const [lastShot, setLastShot] = useState<IncomingShot | null>(null);
   const [pausedUser, setPausedUser] = useState<string | null>(null);
   const nonceRef = useRef(0);
+  const liveAimRef = useRef<LiveAim | null>(null);
 
   useEffect(() => {
     if (!roomId) return;
@@ -96,6 +110,7 @@ export const useNetMatch = (roomId: string | null) => {
       state: NetGameState;
     }): void => {
       if (p.roomId !== roomId) return;
+      liveAimRef.current = null; // a real shot supersedes any live aim
       setState(p.state);
       nonceRef.current += 1;
       setLastShot({
@@ -105,11 +120,16 @@ export const useNetMatch = (roomId: string | null) => {
         nonce: nonceRef.current,
       });
     };
+    const onAim = (p: { roomId: string; shooter: string; aim: AimPayload }): void => {
+      if (p.roomId !== roomId) return;
+      liveAimRef.current = { shooter: p.shooter, ...p.aim };
+    };
 
     s.on('connect', join);
     s.on('game:state', onState);
     s.on('game:start', onStart);
     s.on('game:shot', onShot);
+    s.on('game:aim', onAim);
     s.on('game:paused', onPaused);
     s.on('game:resumed', onResumed);
     if (s.connected) join();
@@ -119,6 +139,7 @@ export const useNetMatch = (roomId: string | null) => {
       s.off('game:state', onState);
       s.off('game:start', onStart);
       s.off('game:shot', onShot);
+      s.off('game:aim', onAim);
       s.off('game:paused', onPaused);
       s.off('game:resumed', onResumed);
     };
@@ -127,6 +148,9 @@ export const useNetMatch = (roomId: string | null) => {
   const sendShot = (outcome: ShotOutcome, inputs: ShotInputs): void => {
     connectSocket().emit('game:shot', { roomId, outcome, inputs });
   };
+  const sendAim = (aim: AimPayload): void => {
+    connectSocket().emit('game:aim', { roomId, aim });
+  };
 
-  return { myId, state, lastShot, pausedUser, sendShot };
+  return { myId, state, lastShot, pausedUser, sendShot, sendAim, liveAim: liveAimRef };
 };

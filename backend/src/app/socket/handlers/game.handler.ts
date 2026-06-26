@@ -82,6 +82,16 @@ export const registerGameHandlers = (io: TypedServer, socket: TypedSocket): void
     }
   });
 
+  // Live aim relay — purely cosmetic, high-frequency, no persistence/validation.
+  // Sent to everyone else in the room; clients only render the current shooter's.
+  socket.on(SOCKET_EVENTS.GAME_AIM, ({ roomId, aim }) => {
+    socket.to(SOCKET_ROOMS.game(roomId)).emit(SOCKET_EVENTS.GAME_AIM, {
+      roomId,
+      shooter: userId,
+      aim,
+    });
+  });
+
   socket.on(SOCKET_EVENTS.DISCONNECT, () => {
     const rooms = joinedRooms.get(socket.id);
     joinedRooms.delete(socket.id);

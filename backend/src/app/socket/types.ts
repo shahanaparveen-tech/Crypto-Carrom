@@ -27,8 +27,19 @@ export interface ServerToClientEvents {
     events: GameEvent[];
     state: GameState;
   }) => void;
+  'game:aim': (payload: { roomId: string; shooter: string; aim: AimPayload }) => void;
   'game:paused': (payload: { roomId: string; userId: string; graceMs: number }) => void;
   'game:resumed': (payload: { roomId: string; userId: string }) => void;
+}
+
+/** Live (ephemeral) aim broadcast while a player is lining up a shot. */
+export interface AimPayload {
+  strikerX: number;
+  strikerY: number;
+  dirX: number;
+  dirY: number;
+  power: number;
+  active: boolean; // true while dragging an aim line; false = striker moved only
 }
 
 export interface ClientToServerEvents {
@@ -48,6 +59,7 @@ export interface ClientToServerEvents {
     payload: { roomId: string; outcome: ShotOutcome; inputs?: unknown },
     ack?: AckFn,
   ) => void;
+  'game:aim': (payload: { roomId: string; aim: AimPayload }) => void;
 }
 
 export interface InterServerEvents {
