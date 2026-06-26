@@ -18,13 +18,44 @@ export const BOARD = {
   INNER_RING_R: 32, // 6 coins hugging the queen
   OUTER_RING_R: 62, // 12 coins around the inner ring
 
-  STRIKER_Y: 490, // player 0 (bottom) shooting baseline
-  STRIKER_Y_TOP: 110, // player 1 (top) shooting baseline
-  STRIKER_MIN_X: 150,
+  STRIKER_Y: 490, // bottom shooting baseline
+  STRIKER_Y_TOP: 110, // top shooting baseline
+  STRIKER_X_LEFT: 110, // left shooting baseline (2v2)
+  STRIKER_X_RIGHT: 490, // right shooting baseline (2v2)
+  STRIKER_MIN: 150, // min position along any baseline
+  STRIKER_MAX: 450, // max position along any baseline
+  STRIKER_MIN_X: 150, // (back-compat alias)
   STRIKER_MAX_X: 450,
 } as const;
 
-/** Shooting baseline Y for each player (auto-positioned by turn). */
+/** Shooting side: which edge the player shoots from. */
+export const SIDE = { BOTTOM: 0, TOP: 1, LEFT: 2, RIGHT: 3 } as const;
+export type Side = (typeof SIDE)[keyof typeof SIDE];
+
+/** Left/right sides slide the striker vertically; top/bottom horizontally. */
+export const sideIsVertical = (side: Side): boolean => side === SIDE.LEFT || side === SIDE.RIGHT;
+
+/** Seat → shooting side. 1v1 uses bottom/top; 2v2 adds left/right. */
+export const sideForSeat = (seat: number): Side =>
+  [SIDE.BOTTOM, SIDE.TOP, SIDE.LEFT, SIDE.RIGHT][seat % 4] as Side;
+
+/** Striker position on a given side, parameterised by `t` along the baseline. */
+export const strikerSpot = (side: Side, t: number): { x: number; y: number } => {
+  const c = Math.max(BOARD.STRIKER_MIN, Math.min(BOARD.STRIKER_MAX, t));
+  switch (side) {
+    case SIDE.TOP:
+      return { x: c, y: BOARD.STRIKER_Y_TOP };
+    case SIDE.LEFT:
+      return { x: BOARD.STRIKER_X_LEFT, y: c };
+    case SIDE.RIGHT:
+      return { x: BOARD.STRIKER_X_RIGHT, y: c };
+    case SIDE.BOTTOM:
+    default:
+      return { x: c, y: BOARD.STRIKER_Y };
+  }
+};
+
+/** Shooting baseline Y for a 2-side player (back-compat for 1v1 boards). */
 export const baselineY = (player: 0 | 1): number =>
   player === 0 ? BOARD.STRIKER_Y : BOARD.STRIKER_Y_TOP;
 
@@ -41,6 +72,7 @@ export const PHYSICS = {
   COIN_MASS: 1,
   STRIKER_MASS: 1.4,
   SUBSTEPS: 3, // physics sub-steps per animation frame (anti-tunnelling)
+  MAX_SIM_FRAMES: 900, // hard cap (~15s) — force-rest if a shot never settles
 } as const;
 
 export const COLORS = {

@@ -142,12 +142,18 @@ const drawBoard = (g: Graphics): void => {
   }
   g.circle(CENTER, CENTER, 20).stroke({ width: 2, color: COLORS.queenEdge });
 
+  // Striker guide rails on all four sides (identical design).
+  const a = BOARD.STRIKER_MIN_X;
+  const b = BOARD.STRIKER_MAX_X;
   for (const y of [108, SIZE - 108]) {
-    g.moveTo(BOARD.STRIKER_MIN_X, y)
-      .lineTo(BOARD.STRIKER_MAX_X, y)
-      .stroke({ width: 3, color: COLORS.queen });
-    g.circle(BOARD.STRIKER_MIN_X, y, 7).fill(COLORS.cornerMark);
-    g.circle(BOARD.STRIKER_MAX_X, y, 7).fill(COLORS.cornerMark);
+    g.moveTo(a, y).lineTo(b, y).stroke({ width: 3, color: COLORS.queen });
+    g.circle(a, y, 7).fill(COLORS.cornerMark);
+    g.circle(b, y, 7).fill(COLORS.cornerMark);
+  }
+  for (const x of [108, SIZE - 108]) {
+    g.moveTo(x, a).lineTo(x, b).stroke({ width: 3, color: COLORS.queen });
+    g.circle(x, a, 7).fill(COLORS.cornerMark);
+    g.circle(x, b, 7).fill(COLORS.cornerMark);
   }
 
   for (const pk of POCKETS) {
@@ -197,6 +203,7 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
     let cancelled = false;
     let ready = false;
     let canvasEl: HTMLCanvasElement | null = null;
+    let simFrames = 0; // frames the current shot has been simulating
     const app = new Application();
     const boardG = new Graphics();
     const dynG = new Graphics();
@@ -325,6 +332,7 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
         setStrikerX(shot.strikerX);
         scoreRef.current.thinking = false;
         turnPocketsRef.current = [];
+        simFrames = 0;
         shootStriker(getStriker(stateRef.current), shot.dirX, shot.dirY, shot.power);
         phaseRef.current = 'sim';
         emitScore();
@@ -400,13 +408,23 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
     const loop = (): void => {
       const state = stateRef.current;
       if (phaseRef.current === 'sim') {
+        simFrames += 1;
         const res = stepWorld(state);
         if (res.pocketed.length) {
           turnPocketsRef.current.push(...res.pocketed);
           recomputeScore();
           emitScore();
         }
-        if (res.settled) onSettle();
+        // End the turn only once everything is at rest — or force-rest if a shot
+        // jitters forever (guarantees the turn never gets stuck).
+        if (res.settled || simFrames > PHYSICS.MAX_SIM_FRAMES) {
+          if (!res.settled)
+            for (const p of state.pieces) {
+              p.vx = 0;
+              p.vy = 0;
+            }
+          onSettle();
+        }
       }
       redraw();
     };
@@ -438,6 +456,7 @@ export const GameCanvas = ({ onScore, ai = null }: GameCanvasProps): JSX.Element
       aimRef.current = { ...emptyAim };
       if (phaseRef.current !== 'aim' || aim.power <= 0.05) return;
       turnPocketsRef.current = []; // fresh shot
+      simFrames = 0;
       shootStriker(getStriker(stateRef.current), aim.dirX, aim.dirY, aim.power);
       phaseRef.current = 'sim';
     };

@@ -5,11 +5,14 @@ import {
   BOARD,
   COLORS,
   PHYSICS,
-  baselineY,
+  SIDE,
+  sideForSeat,
+  strikerSpot,
   createBoardState,
   getStriker,
   stepWorld,
   shootStriker,
+  type Side,
   type BoardState,
   type Piece,
 } from '../engine';
@@ -29,8 +32,7 @@ interface AimState {
   power: number;
 }
 const emptyAim: AimState = { active: false, dirX: 0, dirY: 0, power: 0 };
-const clampX = (x: number): number =>
-  Math.max(BOARD.STRIKER_MIN_X, Math.min(BOARD.STRIKER_MAX_X, x));
+const clampT = (t: number): number => Math.max(BOARD.STRIKER_MIN, Math.min(BOARD.STRIKER_MAX, t));
 
 interface NetGameCanvasProps {
   state: NetGameState | null;
@@ -43,7 +45,8 @@ interface NetGameCanvasProps {
  * Networked board: the server is the turn/score authority. The local player
  * shoots on their turn and reports the settled outcome; opponents' shots are
  * deterministically replayed from broadcast inputs. Coin pocket/return state is
- * reconciled from the authoritative events after every shot.
+ * reconciled from the authoritative events after every shot. Players shoot from
+ * one of four sides (bottom/top/left/right) based on their seat.
  */
 export const NetGameCanvas = ({
   state,
@@ -57,7 +60,13 @@ export const NetGameCanvas = ({
   const phaseRef = useRef<'aim' | 'sim'>('aim');
   const waitingRef = useRef(false); // awaiting server ack of my shot
   const turnPocketsRef = useRef<Piece[]>([]);
-  const inputsRef = useRef<ShotInputs>({ strikerX: BOARD.CENTER, dirX: 0, dirY: 0, power: 0 });
+  const inputsRef = useRef<ShotInputs>({
+    strikerX: BOARD.CENTER,
+    strikerY: BOARD.STRIKER_Y,
+    dirX: 0,
+    dirY: 0,
+    power: 0,
+  });
   const pendingEventsRef = useRef<NetEvent[] | null>(null);
   const stateRef = useRef<NetGameState | null>(state);
   stateRef.current = state;
@@ -65,10 +74,10 @@ export const NetGameCanvas = ({
   lastShotRef.current = lastShot;
   const processedNonceRef = useRef(0);
   const lastTurnRef = useRef<string>('');
-  const [strikerX, setStrikerX] = useState<number>(BOARD.CENTER);
+  const [sliderT, setSliderT] = useState<number>(BOARD.CENTER);
 
-  const sideOf = (userId: string): 0 | 1 =>
-    stateRef.current?.players[userId]?.teamId === 'A' ? 0 : 1;
+  const sideOf = (userId: string): Side =>
+    sideForSeat(stateRef.current?.players[userId]?.seat ?? 0);
   const byId = (id: string): Piece | undefined => boardRef.current.pieces.find((p) => p.id === id);
 
   useEffect(() => {
@@ -78,6 +87,7 @@ export const NetGameCanvas = ({
     let cancelled = false;
     let ready = false;
     let canvasEl: HTMLCanvasElement | null = null;
+    let simFrames = 0;
     const app = new Application();
     const boardG = new Graphics();
     const dynG = new Graphics();
@@ -93,10 +103,20 @@ export const NetGameCanvas = ({
       stateRef.current.status === 'ACTIVE' &&
       stateRef.current.turn.currentPlayer === myId;
 
-    const placeStriker = (side: 0 | 1, x: number): void => {
+    /** Place the striker on a side, parameterised along its baseline. */
+    const placeStriker = (side: Side, t: number): void => {
       const s = getStriker(boardRef.current);
-      s.x = clampX(x);
-      s.y = baselineY(side);
+      const pos = strikerSpot(side, t);
+      s.x = pos.x;
+      s.y = pos.y;
+      s.vx = 0;
+      s.vy = 0;
+      s.pocketed = false;
+    };
+    const placeStrikerAt = (x: number, y: number): void => {
+      const s = getStriker(boardRef.current);
+      s.x = x;
+      s.y = y;
       s.vx = 0;
       s.vy = 0;
       s.pocketed = false;
@@ -143,7 +163,7 @@ export const NetGameCanvas = ({
       if (st.turn.currentPlayer !== lastTurnRef.current) {
         lastTurnRef.current = st.turn.currentPlayer;
         placeStriker(sideOf(st.turn.currentPlayer), BOARD.CENTER);
-        setStrikerX(BOARD.CENTER);
+        setSliderT(BOARD.CENTER);
       }
     };
 
@@ -155,21 +175,18 @@ export const NetGameCanvas = ({
         syncTurnStriker();
         return;
       }
-      // Replay the opponent's shot from broadcast inputs.
       if (!shot.inputs) {
         applyEvents(shot.events);
         syncTurnStriker();
         return;
       }
-      placeStriker(sideOf(shot.shooter), shot.inputs.strikerX);
+      // Deterministically replay the opponent's shot from the exact inputs.
+      const { strikerX, strikerY, dirX, dirY, power } = shot.inputs;
+      placeStrikerAt(strikerX, strikerY ?? strikerSpot(sideOf(shot.shooter), strikerX).y);
       pendingEventsRef.current = shot.events;
       turnPocketsRef.current = [];
-      shootStriker(
-        getStriker(boardRef.current),
-        shot.inputs.dirX,
-        shot.inputs.dirY,
-        shot.inputs.power,
-      );
+      simFrames = 0;
+      shootStriker(getStriker(boardRef.current), dirX, dirY, power);
       phaseRef.current = 'sim';
     };
 
@@ -179,7 +196,6 @@ export const NetGameCanvas = ({
         applyEvents(pendingEventsRef.current); // opponent shot resolved
         pendingEventsRef.current = null;
       } else {
-        // My shot settled — report the outcome; authority will echo it back.
         const pocketedCoinIds = turnPocketsRef.current
           .filter((p) => p.kind !== 'striker')
           .map((p) => p.id);
@@ -209,11 +225,18 @@ export const NetGameCanvas = ({
 
     const loop = (): void => {
       if (phaseRef.current === 'sim') {
+        simFrames += 1;
         const res = stepWorld(boardRef.current);
         if (res.pocketed.length) turnPocketsRef.current.push(...res.pocketed);
-        if (res.settled) onSettle();
+        if (res.settled || simFrames > PHYSICS.MAX_SIM_FRAMES) {
+          if (!res.settled)
+            for (const p of boardRef.current.pieces) {
+              p.vx = 0;
+              p.vy = 0;
+            }
+          onSettle();
+        }
       } else {
-        // Process a freshly broadcast shot (only while idle).
         const shot = lastShotRef.current;
         if (shot && shot.nonce !== processedNonceRef.current && !waitingRef.current) {
           processShot(shot);
@@ -251,8 +274,15 @@ export const NetGameCanvas = ({
       aimRef.current = { ...emptyAim };
       if (!canAim() || aim.power <= 0.05) return;
       const s = getStriker(boardRef.current);
-      inputsRef.current = { strikerX: s.x, dirX: aim.dirX, dirY: aim.dirY, power: aim.power };
+      inputsRef.current = {
+        strikerX: s.x,
+        strikerY: s.y,
+        dirX: aim.dirX,
+        dirY: aim.dirY,
+        power: aim.power,
+      };
       turnPocketsRef.current = [];
+      simFrames = 0;
       shootStriker(s, aim.dirX, aim.dirY, aim.power);
       phaseRef.current = 'sim';
     };
@@ -300,17 +330,21 @@ export const NetGameCanvas = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myId]);
 
+  // Slide the striker along the current player's baseline (axis depends on side).
   const onSlider = (value: number): void => {
     const st = stateRef.current;
-    if (!st || st.turn.currentPlayer !== myId || phaseRef.current !== 'aim' || waitingRef.current)
-      return;
-    setStrikerX(value);
+    if (!st || st.turn.currentPlayer !== myId || phaseRef.current !== 'aim') return;
+    const t = clampT(value);
+    setSliderT(t);
     const s = getStriker(boardRef.current);
     if (!s.pocketed) {
-      s.x = clampX(value);
-      s.y = baselineY(sideOf(myId));
+      const pos = strikerSpot(sideForSeat(st.players[myId]?.seat ?? 0), t);
+      s.x = pos.x;
+      s.y = pos.y;
     }
   };
+
+  const vertical = state ? sideForSeat(state.players[myId]?.seat ?? 0) >= SIDE.LEFT : false;
 
   return (
     <div className="w-full">
@@ -321,11 +355,11 @@ export const NetGameCanvas = ({
       <div className="mx-auto mt-4 w-full max-w-[420px] rounded-full border border-gold/30 bg-gradient-to-b from-wood-light/80 to-wood-dark/80 px-4 py-3 shadow-inner">
         <input
           type="range"
-          min={BOARD.STRIKER_MIN_X}
-          max={BOARD.STRIKER_MAX_X}
-          value={strikerX}
+          min={BOARD.STRIKER_MIN}
+          max={BOARD.STRIKER_MAX}
+          value={sliderT}
           onChange={(e) => onSlider(Number(e.target.value))}
-          aria-label="Position striker"
+          aria-label={vertical ? 'Position striker (vertical)' : 'Position striker'}
           className="w-full accent-gold"
         />
       </div>

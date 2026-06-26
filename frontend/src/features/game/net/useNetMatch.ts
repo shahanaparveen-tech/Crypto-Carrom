@@ -5,6 +5,7 @@ import { useAuthState } from '@features/auth/hooks';
 
 export interface ShotInputs {
   strikerX: number;
+  strikerY?: number; // exact striker Y at release (4-side replay)
   dirX: number;
   dirY: number;
   power: number;

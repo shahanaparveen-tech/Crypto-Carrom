@@ -11,7 +11,19 @@ export type { ITurnManager } from './turns';
 export type { IScoringSystem } from './scoring';
 
 // ---- Concrete implementation ----
-export { BOARD, PHYSICS, COLORS, POCKETS, baselineY, ownColor } from './constants';
+export {
+  BOARD,
+  PHYSICS,
+  COLORS,
+  POCKETS,
+  baselineY,
+  ownColor,
+  SIDE,
+  sideForSeat,
+  sideIsVertical,
+  strikerSpot,
+  type Side,
+} from './constants';
 export { createBoardState, getStriker, countByKind } from './board';
 export type { BoardState, Piece, PieceKind } from './board';
 export { stepWorld, shootStriker } from './simulation';
